@@ -1,0 +1,46 @@
+info:
+  name: Metabase Doris Driver
+  version: 0.1.0
+  description: Allows Metabase to connect to Apache Doris through the FE MySQL protocol.
+
+driver:
+  name: doris
+  display-name: Apache Doris
+  lazy-load: true
+  parent: sql-jdbc
+  connection-properties:
+    - group:
+        container-style: ["grid", "3fr 1fr"]
+        fields:
+          - host
+          - merge:
+              - port
+              - default: 9030
+    - name: catalog
+      display-name: Catalog
+      placeholder: internal
+      required: false
+      helper-text: Doris catalog name. v1 is optimized for the internal catalog.
+    - name: dbname
+      display-name: Database (optional)
+      required: false
+      helper-text: Specific database within the catalog. Leave empty to sync all visible databases in the catalog.
+    - user
+    - password
+    - group:
+        container-style: ["component", "backdrop"]
+        fields:
+          - ssl
+          - ssh-tunnel
+    - advanced-options-start
+    - merge:
+        - additional-options
+        - placeholder: "allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8"
+    - default-advanced-options
+  connection-properties-include-tunnel-config: true
+
+init:
+  - step: load-namespace
+    namespace: metabase.driver.doris
+  - step: register-jdbc-driver
+    class: org.mariadb.jdbc.Driver
