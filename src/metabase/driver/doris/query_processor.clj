@@ -85,3 +85,8 @@
            (.getString ^ResultSet rs 1)))
        (catch Exception _
          "UTC")))))
+
+(defmethod driver/set-timezone! :doris
+  [_ ^Connection conn timezone-id]
+  (with-open [stmt (.createStatement conn)]
+    (.execute stmt (format "SET time_zone = '%s'" timezone-id))))

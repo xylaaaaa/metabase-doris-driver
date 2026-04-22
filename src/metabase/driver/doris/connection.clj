@@ -81,8 +81,20 @@
       (re-find #"(?i)unknown database" msg)
       "Database not found. Please check the catalog and database names."
 
-      (re-find #"(?i)unknown catalog" msg)
+      (re-find #"(?i)unknown catalog|catalog.*not found" msg)
       "Catalog not found. Please check the catalog name."
+
+      (re-find #"(?i)table.*not exist|unknown table" msg)
+      "Table not found. Please check that the table exists in the specified catalog and database."
+
+      (re-find #"(?i)sslhandshake" msg)
+      "SSL handshake failed. Check your SSL settings or try disabling SSL."
+
+      (re-find #"(?i)timeout|timed out" msg)
+      "Connection timeout. Check network connectivity and Doris FE availability."
+
+      (re-find #"(?i)no suitable driver" msg)
+      "JDBC driver not found. Please ensure the MariaDB JDBC driver is properly installed."
 
       :else
       msg)))
