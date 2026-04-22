@@ -28,15 +28,22 @@
                               :connection/multiple-databases    true
                               :jdbc/statements                  true
                               :metadata/table-existence-check   true
+                              :fingerprint                      true
                               :native-parameters                false
                               :parameterized-sql                false
                               :native-parameter-card-reference  false
+                              :native-temporal-units            false
+                              :parameters/table-reference       false
+                              :nested-queries                   false
                               :table-privileges                 false
                               :metadata/key-constraints         false
                               :describe-fks                     false
                               :describe-fields                  false
                               :describe-indexes                 false
                               :index-info                       false
+                              :percentile-aggregations          false
+                              :regex                            false
+                              :regex/lookaheads-and-lookbehinds false
                               :nested-fields                    false
                               :nested-field-columns             false
                               :uploads                          false
@@ -47,5 +54,6 @@
                               :connection-impersonation         false
                               :connection-impersonation-requires-role false
                               :database-replication             false
+                              :database-routing                 false
                               :convert-timezone                 false}]
   (defmethod driver/database-supports? [:doris feature] [_ _ _] supported?))

@@ -38,8 +38,12 @@ field so that future `external catalog` support does not require restructuring.
 ```text
 samples/connect/metabase-doris-driver/
 ├── README.md
+├── IMPLEMENTATION-RESULTS.md
 ├── deps.edn
 ├── build.clj
+├── run-local-metabase.sh
+├── scripts/
+│   └── validate-local.sh
 ├── resources/
 │   ├── metabase-plugin.yaml
 │   └── metabase_driver/doris/icon.svg
@@ -115,6 +119,15 @@ This v1 sample intentionally keeps several capabilities disabled:
 
 ## Verification Status
 
-This sample was scaffolded in an environment without Java, Maven, or Clojure CLI available, so runtime compilation
-and Metabase integration tests were not executed here. The implementation and tests have been added, but build and
-runtime verification still need to be performed in a Java-enabled environment.
+Implementation and runtime validation results are recorded in:
+
+- [IMPLEMENTATION-RESULTS.md](IMPLEMENTATION-RESULTS.md)
+
+At this point the following have been verified locally:
+
+1. `clojure -T:build jar`
+2. Metabase plugin loading
+3. Doris connection validation
+4. Metadata sync
+5. Native query execution
+6. Query Builder basic aggregation, filter, and time bucketing
