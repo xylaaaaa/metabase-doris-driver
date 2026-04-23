@@ -549,11 +549,64 @@ During this validation, the helper script needed one robustness fix: a newly cre
 the target table before its field list is fully populated. The script now waits for the requested group, metric, and
 optional time fields to appear in metadata before resolving field IDs.
 
-This means the driver now has three distinct real Metabase-validated external catalog paths:
+## Metabase end-to-end Paimon external catalog validation
+
+A fourth end-to-end Metabase smoke validation was executed against a Paimon external catalog sample path:
+
+```text
+catalog: paimon_local_test
+database: db1
+table: all_table
+group field: c14
+metric field: c5
+time field: c12
+```
+
+Validation script:
+
+```bash
+METABASE_DB_NAME='Local Doris External Paimon All Table v1' \
+DORIS_CATALOG='paimon_local_test' \
+DORIS_DB='db1' \
+EXTERNAL_TABLE_NAME='all_table' \
+EXTERNAL_GROUP_FIELD='c14' \
+EXTERNAL_METRIC_FIELD='c5' \
+EXTERNAL_TIME_FIELD='c12' \
+bash scripts/validate-external-catalog.sh
+```
+
+Observed results:
+
+1. Connection validation succeeded.
+2. Metabase created a new Doris database entry and synced `all_table` from `db1`.
+3. Native query succeeded with:
+
+```text
+row_count  total_metric
+2          55
+```
+
+4. Grouped MBQL query succeeded with:
+
+```text
+c14         total_metric
+140varchar  50
+14varchar   5
+```
+
+5. Temporal breakout on `c12` succeeded with:
+
+```text
+2020-02-02T00:00:00+08:00   1
+2020-03-02T00:00:00+08:00   1
+```
+
+This means the driver now has four distinct real Metabase-validated external catalog paths:
 
 1. Hive/HMS-style external catalog
 2. JDBC external catalog
 3. Iceberg external catalog
+4. Paimon external catalog
 
 ## FE-side external catalog sample verification
 

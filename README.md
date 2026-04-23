@@ -140,7 +140,12 @@ The plugin exposes these Doris-specific fields:
    - native query
    - grouped MBQL query
    - temporal breakout
-8. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
+8. one validated Paimon external catalog path:
+   - `paimon_local_test.db1.all_table`
+   - native query
+   - grouped MBQL query
+   - temporal breakout
+9. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
 
 ### Experimental
 
@@ -148,9 +153,9 @@ The plugin exposes these Doris-specific fields:
    - `SHOW DATABASES FROM <catalog>`
    - `SHOW TABLES FROM <catalog>.<db>`
    - `DESC <catalog>.<db>.<table>`
-2. external catalog read-only native query execution outside the validated Hive/JDBC/Iceberg sample paths
+2. external catalog read-only native query execution outside the validated Hive/JDBC/Iceberg/Paimon sample paths
 3. external catalog Query Builder aggregation on table layouts that behave like regular relational tables outside the
-   validated Hive/JDBC/Iceberg sample paths
+   validated Hive/JDBC/Iceberg/Paimon sample paths
 
 Experimental means the SQL path exists in the driver and is intentionally in scope, but validation still depends on the
 specific external catalog backend and table type.
@@ -256,6 +261,12 @@ Validated Iceberg catalog sample results also recorded in `IMPLEMENTATION-RESULT
 1. native query count/sum on `sample_parquet` succeeds
 2. grouped MBQL query by `city` succeeds
 3. temporal breakout by `col_date` succeeds
+
+Validated Paimon catalog sample results also recorded in `IMPLEMENTATION-RESULTS.md`:
+
+1. native query count/sum on `all_table` succeeds
+2. grouped MBQL query by `c14` succeeds
+3. temporal breakout by `c12` succeeds
 
 ## Verification Status
 
