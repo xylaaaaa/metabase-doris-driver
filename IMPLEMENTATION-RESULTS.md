@@ -738,6 +738,22 @@ Observed metadata result:
 json_col json type/JSON
 ```
 
+### JDBC HLL metadata sample
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: bowen_hll_test
+expected:
+  user_log_acct -> type/*
+```
+
+Observed metadata result:
+
+```text
+user_log_acct hll type/*
+```
+
 ### Paimon complex-type metadata sample
 
 ```text
@@ -824,6 +840,22 @@ Observed metadata result:
 
 ```text
 v variant type/*
+```
+
+### JDBC bitmap metadata sample
+
+```text
+catalog: doris_jdbc_catalog_query_bitmap
+database: regression_test_jdbc_catalog_p0_query_bitmap
+table: metric_table
+expected:
+  device_id -> type/*
+```
+
+Observed metadata result:
+
+```text
+device_id bitmap type/*
 ```
 
 This shows that top-level complex type display is now backed by both:

@@ -188,6 +188,7 @@ Top-level complex type metadata has been validated against these real external c
 1. JDBC catalog:
    - `test_jni_complex_type.arr_text array<text>` -> `type/Array`
    - `base.json_col json` -> `type/JSON`
+   - `bowen_hll_test.user_log_acct hll` -> `type/*`
 2. Paimon catalog:
    - `complex_tab.c2 array<bigint>` -> `type/Array`
    - `complex_tab.c3 map<varchar(10),boolean>` -> `type/Dictionary`
@@ -200,9 +201,11 @@ Top-level complex type metadata has been validated against these real external c
    - `json_table.details struct<a:int,b:text,c:bigint>` -> `type/*`
 4. Remote Doris catalog:
    - `remote_variant_t.v variant<...>` -> `type/*`
+5. JDBC bitmap catalog:
+   - `metric_table.device_id bitmap` -> `type/*`
 
-These validated samples now cover top-level `ARRAY`, `MAP`, `STRUCT`, `JSON`, and `VARIANT` metadata behavior.
-`HLL` and `BITMAP` still only have mapping rules and unit coverage, not live external metadata validation.
+These validated samples now cover top-level `ARRAY`, `MAP`, `STRUCT`, `JSON`, `VARIANT`, `HLL`, and `BITMAP`
+metadata behavior.
 
 ## External Catalog Validation
 
@@ -288,6 +291,17 @@ export EXPECTED_FIELD_BASE_TYPES="json_col:type/JSON"
 ./scripts/validate-complex-metadata.sh
 ```
 
+JDBC HLL metadata can be validated the same way:
+
+```bash
+export METABASE_DB_NAME="Local Doris External JDBC HLL Metadata v1"
+export DORIS_CATALOG="doris_jdbc_catalog"
+export DORIS_DB="regression_test_jdbc_catalog_p0"
+export COMPLEX_TABLE_NAME="bowen_hll_test"
+export EXPECTED_FIELD_BASE_TYPES="user_log_acct:type/*"
+./scripts/validate-complex-metadata.sh
+```
+
 Paimon complex-type metadata can be validated the same way:
 
 ```bash
@@ -318,6 +332,17 @@ export DORIS_CATALOG="codex_remote_variant_catalog"
 export DORIS_DB="codex_remote_variant_db"
 export COMPLEX_TABLE_NAME="remote_variant_t"
 export EXPECTED_FIELD_BASE_TYPES="v:type/*"
+./scripts/validate-complex-metadata.sh
+```
+
+JDBC bitmap metadata can also be validated:
+
+```bash
+export METABASE_DB_NAME="Local Doris External JDBC Bitmap Metadata v1"
+export DORIS_CATALOG="doris_jdbc_catalog_query_bitmap"
+export DORIS_DB="regression_test_jdbc_catalog_p0_query_bitmap"
+export COMPLEX_TABLE_NAME="metric_table"
+export EXPECTED_FIELD_BASE_TYPES="device_id:type/*"
 ./scripts/validate-complex-metadata.sh
 ```
 
