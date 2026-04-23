@@ -19,6 +19,8 @@ under the License.
 
 # Metabase Doris Driver
 
+[![CI](https://github.com/xylaaaaa/metabase-doris-driver/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/xylaaaaa/metabase-doris-driver/actions/workflows/ci.yml)
+
 This directory contains a standalone Apache Doris sample driver for Metabase community driver loading.
 
 ## Scope
