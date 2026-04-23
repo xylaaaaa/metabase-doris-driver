@@ -1,0 +1,73 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "VERSION=manual-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: latest
+
+      - name: Cache Clojure dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.clojure/.cpcache
+          key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clojure-
+
+      - name: Build source-only driver JAR
+        run: clojure -T:build jar
+
+      - name: Rename artifact with version
+        run: |
+          mv target/doris.metabase-driver.jar \
+             target/doris.metabase-driver-${{ steps.version.outputs.VERSION }}.jar
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/doris.metabase-driver-${{ steps.version.outputs.VERSION }}.jar
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            1. Download `doris.metabase-driver-${{ steps.version.outputs.VERSION }}.jar`
+            2. Copy it into your Metabase `plugins/` directory
+            3. Restart Metabase
+
+            See the repository README for scope, support matrix, and local validation instructions.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
