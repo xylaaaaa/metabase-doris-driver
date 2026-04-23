@@ -810,14 +810,26 @@ Observed metadata result:
 c_row struct<c_boolean:boolean,...,c_row:struct<...>> type/*
 ```
 
+### Remote Doris variant metadata sample
+
+```text
+catalog: codex_remote_variant_catalog
+database: codex_remote_variant_db
+table: remote_variant_t
+expected:
+  v -> type/*
+```
+
+Observed metadata result:
+
+```text
+v variant type/*
+```
+
 This shows that top-level complex type display is now backed by both:
 
 1. mapping tests in the driver
-2. live Metabase metadata verification for JDBC, Paimon, and Hive/HMS external catalogs
-
-Observed gap still remaining:
-
-1. no real external `VARIANT` sample has been validated yet
+2. live Metabase metadata verification for JDBC, Paimon, Hive/HMS, and remote Doris external catalogs
 
 ## Summary
 

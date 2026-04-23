@@ -198,10 +198,11 @@ Top-level complex type metadata has been validated against these real external c
    - `json_table.numbers array<int>` -> `type/Array`
    - `json_table.scores map<text,int>` -> `type/Dictionary`
    - `json_table.details struct<a:int,b:text,c:bigint>` -> `type/*`
+4. Remote Doris catalog:
+   - `remote_variant_t.v variant<...>` -> `type/*`
 
-Known gaps in the current validated matrix:
-
-1. No real external `VARIANT` sample has been validated yet
+These validated samples now cover top-level `ARRAY`, `MAP`, `STRUCT`, `JSON`, and `VARIANT` metadata behavior.
+`HLL` and `BITMAP` still only have mapping rules and unit coverage, not live external metadata validation.
 
 ## External Catalog Validation
 
@@ -306,6 +307,17 @@ export DORIS_CATALOG="test_hive2_external_sql_block_rule"
 export DORIS_DB="openx_json"
 export COMPLEX_TABLE_NAME="json_table"
 export EXPECTED_FIELD_BASE_TYPES="numbers:type/Array,scores:type/Dictionary,details:type/*"
+./scripts/validate-complex-metadata.sh
+```
+
+Remote Doris `VARIANT` metadata can also be validated:
+
+```bash
+export METABASE_DB_NAME="Local Doris External Remote Variant Metadata v1"
+export DORIS_CATALOG="codex_remote_variant_catalog"
+export DORIS_DB="codex_remote_variant_db"
+export COMPLEX_TABLE_NAME="remote_variant_t"
+export EXPECTED_FIELD_BASE_TYPES="v:type/*"
 ./scripts/validate-complex-metadata.sh
 ```
 
