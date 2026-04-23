@@ -32,10 +32,27 @@
          (doris.sync/describe-schema-sql "internal" "internal_db")))
   (is (= "SHOW TABLES FROM `hive_catalog`.`tpch`"
          (doris.sync/describe-schema-sql "hive_catalog" "tpch")))
-  (is (= "DESC `internal_db`.`orders`"
+  (is (= "SHOW FULL COLUMNS FROM `orders` FROM `internal_db`"
          (doris.sync/describe-table-sql "internal" "internal_db" "orders")))
-  (is (= "DESC `hive_catalog`.`tpch`.`orders`"
+  (is (= "SHOW FULL COLUMNS FROM `orders` FROM `hive_catalog`.`tpch`"
          (doris.sync/describe-table-sql "hive_catalog" "tpch" "orders"))))
+
+(deftest full-column-row->field-test
+  (let [field (doris.sync/full-column-row->field
+               {"Field" "amount"
+                "Type" "decimal(12,2)"
+                "Null" "YES"
+                "Default" "0.00"
+                "Comment" "metric amount"}
+               3)]
+    (is (= "amount" (:name field)))
+    (is (= "decimal(12,2)" (:database-type field)))
+    (is (= :type/Decimal (:base-type field)))
+    (is (= 3 (:database-position field)))
+    (is (= "metric amount" (:field-comment field)))
+    (is (= "0.00" (:database-default field)))
+    (is (= true (:database-is-nullable field)))
+    (is (= false (:database-required field)))))
 
 (deftest type-mapping-test
   (is (= :type/Boolean (doris.types/doris-type->base-type "BOOLEAN")))

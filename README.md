@@ -31,7 +31,8 @@ This is a v1, read-only driver sample with the following goals:
 2. Sync catalogs, databases, tables, and fields using Doris-native SQL.
 3. Support basic Query Builder date and aggregation behavior.
 4. Expose Doris complex types at the top-level metadata layer during schema sync.
-5. Avoid unstable capabilities such as native template parameters, table privilege sync, FK sync, and index sync.
+5. Preserve richer column metadata such as nullability, default values, and comments during sync.
+6. Avoid unstable capabilities such as native template parameters, table privilege sync, FK sync, and index sync.
 
 Current implementation should be understood as:
 
@@ -124,6 +125,7 @@ The plugin exposes these Doris-specific fields:
 2. `internal` catalog native query execution
 3. `internal` catalog Query Builder basic aggregation, filter, and time bucketing
 4. top-level complex type display during sync
+5. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
 
 ### Experimental
 

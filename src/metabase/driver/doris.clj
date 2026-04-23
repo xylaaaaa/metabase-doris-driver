@@ -28,6 +28,8 @@
                               :connection/multiple-databases    true
                               :jdbc/statements                  true
                               :metadata/table-existence-check   true
+                              :describe-default-expr            true
+                              :describe-is-nullable             true
                               :fingerprint                      true
                               :native-parameters                false
                               :parameterized-sql                false

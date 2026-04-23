@@ -46,8 +46,40 @@
   [catalog schema table]
   (let [catalog (doris.conn/normalize-catalog catalog)]
     (if (= catalog doris.conn/default-catalog)
-      (str "DESC " (quote-name schema) "." (quote-name table))
-      (str "DESC " (quote-name catalog) "." (quote-name schema) "." (quote-name table)))))
+      (str "SHOW FULL COLUMNS FROM " (quote-name table) " FROM " (quote-name schema))
+      (str "SHOW FULL COLUMNS FROM "
+           (quote-name catalog) "." (quote-name schema) "." (quote-name table)))))
+
+(defn- nullable?
+  [nullable-value]
+  (= "YES" (some-> nullable-value str str/upper-case)))
+
+(defn- normalize-default
+  [default-value]
+  (when (some? default-value)
+    (str default-value)))
+
+(defn- normalize-comment
+  [comment]
+  (let [comment (some-> comment str)]
+    (when-not (str/blank? comment)
+      comment)))
+
+(defn full-column-row->field
+  [row idx]
+  (let [col-name     (or (get row "Field") (get row :Field))
+        col-type     (or (get row "Type") (get row :Type))
+        nullable-val (or (get row "Null") (get row :Null))
+        default-val  (or (get row "Default") (get row :Default))
+        comment-val  (or (get row "Comment") (get row :Comment))]
+    {:name                 col-name
+     :database-type        col-type
+     :base-type            (doris.types/doris-type->base-type col-type)
+     :database-position    idx
+     :database-default     (normalize-default default-val)
+     :database-is-nullable (nullable? nullable-val)
+     :database-required    (not (nullable? nullable-val))
+     :field-comment        (normalize-comment comment-val)}))
 
 (defn- get-schemas
   [catalog ^Connection conn]
@@ -108,12 +140,12 @@
           :fields (loop [fields []
                          idx 0]
                     (if (.next ^ResultSet rs)
-                      (let [col-name (.getString ^ResultSet rs "Field")
-                            col-type (.getString ^ResultSet rs "Type")]
-                        (recur (conj fields {:name              col-name
-                                             :database-type     col-type
-                                             :base-type         (doris.types/doris-type->base-type col-type)
-                                             :database-position idx})
+                      (let [row {"Field"   (.getString ^ResultSet rs "Field")
+                                 "Type"    (.getString ^ResultSet rs "Type")
+                                 "Null"    (.getString ^ResultSet rs "Null")
+                                 "Default" (.getString ^ResultSet rs "Default")
+                                 "Comment" (.getString ^ResultSet rs "Comment")}]
+                        (recur (conj fields (full-column-row->field row idx))
                                (inc idx)))
                       (set fields)))})))))
 

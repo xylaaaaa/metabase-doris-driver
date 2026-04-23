@@ -60,8 +60,8 @@ The current driver implements the intended v1 baseline:
    - `SHOW DATABASES FROM <catalog>`
    - `SHOW TABLES FROM <db>`
    - `SHOW TABLES FROM <catalog>.<db>`
-   - `DESC <db>.<table>`
-   - `DESC <catalog>.<db>.<table>`
+   - `SHOW FULL COLUMNS FROM <table> FROM <db>`
+   - `SHOW FULL COLUMNS FROM <catalog>.<db>.<table>`
 5. Doris type mapping for:
    - boolean
    - numeric types
@@ -78,7 +78,12 @@ The current driver implements the intended v1 baseline:
    - current datetime
    - `date_trunc`
    - `datetime-diff`
-7. Explicitly disabled unstable v1 capabilities:
+7. Richer field metadata propagation for:
+   - `database-default`
+   - `database-is-nullable`
+   - `database-required`
+   - `field-comment`
+8. Explicitly disabled unstable v1 capabilities:
    - native parameters
    - parameterized SQL capability advertisement
    - FK metadata sync
