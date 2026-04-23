@@ -55,7 +55,8 @@ samples/connect/metabase-doris-driver/
 ├── run-local-metabase.sh
 ├── scripts/
 │   ├── validate-local.sh
-│   └── validate-external-catalog.sh
+│   ├── validate-external-catalog.sh
+│   └── validate-complex-metadata.sh
 ├── resources/
 │   ├── metabase-plugin.yaml
 │   └── metabase_driver/doris/icon.svg
@@ -182,6 +183,19 @@ Complex type support in this sample is intentionally limited to **display / sync
 This means Metabase can see these columns during schema sync, but the driver does not yet unfold them into nested
 fields for Query Builder.
 
+Top-level complex type metadata has been validated against these real external catalog samples:
+
+1. JDBC catalog:
+   - `test_jni_complex_type.arr_text array<text>` -> `type/Array`
+2. Paimon catalog:
+   - `complex_tab.c2 array<bigint>` -> `type/Array`
+   - `complex_tab.c3 map<varchar(10),boolean>` -> `type/Dictionary`
+   - `array_nested.c2 array<array<boolean>>` -> `type/Array`
+   - `array_nested.c15 array<map<boolean,boolean>>` -> `type/Array`
+
+External catalog samples for top-level `STRUCT`, `JSON`, and `VARIANT` metadata are not yet included in the validated
+matrix, even though the driver has mapping rules for them.
+
 ## External Catalog Validation
 
 Use the external validation helper after you have already created a Doris database entry in Metabase that points at an
@@ -244,6 +258,28 @@ table: test_jni_complex_type
 interesting field: arr_text array<text>
 ```
 
+Use the complex metadata helper to verify that Metabase preserved the expected top-level `base_type`:
+
+```bash
+export METABASE_DB_NAME="Local Doris External JDBC Complex Metadata v1"
+export DORIS_CATALOG="doris_jdbc_catalog"
+export DORIS_DB="regression_test_jdbc_catalog_p0"
+export COMPLEX_TABLE_NAME="test_jni_complex_type"
+export EXPECTED_FIELD_BASE_TYPES="arr_text:type/Array"
+./scripts/validate-complex-metadata.sh
+```
+
+Paimon complex-type metadata can be validated the same way:
+
+```bash
+export METABASE_DB_NAME="Local Doris External Paimon Complex Tab Metadata v1"
+export DORIS_CATALOG="paimon_local_test"
+export DORIS_DB="db1"
+export COMPLEX_TABLE_NAME="complex_tab"
+export EXPECTED_FIELD_BASE_TYPES="c2:type/Array,c3:type/Dictionary"
+./scripts/validate-complex-metadata.sh
+```
+
 Validated Hive sample results now recorded in `IMPLEMENTATION-RESULTS.md`:
 
 1. native query count/sum succeeds
@@ -282,3 +318,4 @@ At this point the following have been verified locally:
 4. Metadata sync
 5. Native query execution
 6. Query Builder basic aggregation, filter, and time bucketing
+7. Top-level complex-type metadata validation for JDBC and Paimon external samples

@@ -690,6 +690,85 @@ count(*) = 5
 This supports the current v1 statement that complex types are visible at the top-level metadata layer even though
 nested-field unfolding remains disabled.
 
+## Metabase metadata validation for external complex types
+
+To make top-level complex type behavior reproducible instead of hand-checked, the repository now includes:
+
+```text
+scripts/validate-complex-metadata.sh
+```
+
+This helper:
+
+1. Validates the Doris external catalog connection from Metabase
+2. Resolves or creates a Metabase database entry
+3. Waits for the target table and expected fields to appear in metadata
+4. Verifies that the synced Metabase `base_type` matches the expected top-level type
+
+The helper was executed successfully against these real external complex-type samples.
+
+### JDBC complex-type metadata sample
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: test_jni_complex_type
+expected: arr_text -> type/Array
+```
+
+Observed metadata result:
+
+```text
+arr_text array<text> type/Array
+```
+
+### Paimon complex-type metadata sample
+
+```text
+catalog: paimon_local_test
+database: db1
+table: complex_tab
+expected:
+  c2 -> type/Array
+  c3 -> type/Dictionary
+```
+
+Observed metadata result:
+
+```text
+c2 array<bigint> type/Array
+c3 map<varchar(10),boolean> type/Dictionary
+```
+
+### Paimon nested top-level array sample
+
+```text
+catalog: paimon_local_test
+database: db1
+table: array_nested
+expected:
+  c2 -> type/Array
+  c15 -> type/Array
+```
+
+Observed metadata result:
+
+```text
+c2 array<array<boolean>> type/Array
+c15 array<map<boolean,boolean>> type/Array
+```
+
+This shows that top-level complex type display is now backed by both:
+
+1. mapping tests in the driver
+2. live Metabase metadata verification for JDBC and Paimon external catalogs
+
+What is still not in the validated external matrix:
+
+1. a real external `STRUCT` sample
+2. a real external `JSON` sample
+3. a real external `VARIANT` sample
+
 ## Summary
 
 The repository now has more than a static scaffold.

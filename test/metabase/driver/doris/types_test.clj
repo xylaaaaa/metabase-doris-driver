@@ -65,10 +65,13 @@
 (deftest complex-type-mapping-test
   (testing "maps ARRAY to type/Array"
     (is (= :type/Array (doris.types/doris-type->base-type "ARRAY")))
-    (is (= :type/Array (doris.types/doris-type->base-type "ARRAY<INT>"))))
+    (is (= :type/Array (doris.types/doris-type->base-type "ARRAY<INT>")))
+    (is (= :type/Array (doris.types/doris-type->base-type "array<array<boolean>>")))
+    (is (= :type/Array (doris.types/doris-type->base-type "array<map<boolean,boolean>>"))))
   (testing "maps MAP to type/Dictionary"
     (is (= :type/Dictionary (doris.types/doris-type->base-type "MAP")))
-    (is (= :type/Dictionary (doris.types/doris-type->base-type "MAP<STRING,INT>"))))
+    (is (= :type/Dictionary (doris.types/doris-type->base-type "MAP<STRING,INT>")))
+    (is (= :type/Dictionary (doris.types/doris-type->base-type "map<varchar(10),boolean>"))))
   (testing "maps STRUCT to type/*"
     (is (= :type/* (doris.types/doris-type->base-type "STRUCT")))
     (is (= :type/* (doris.types/doris-type->base-type "STRUCT<a:INT,b:STRING>")))))
