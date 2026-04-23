@@ -490,10 +490,70 @@ NULL                        1
 2021-01-01T00:00:00+08:00   1
 ```
 
-This means the driver now has two distinct real Metabase-validated external catalog paths:
+## Metabase end-to-end Iceberg external catalog validation
+
+A third end-to-end Metabase smoke validation was executed against an Iceberg external catalog sample path:
+
+```text
+catalog: codex_iceberg_check
+database: format_v1
+table: sample_parquet
+group field: city
+metric field: col_integer
+time field: col_date
+```
+
+Validation script:
+
+```bash
+METABASE_DB_NAME='Local Doris External Iceberg Sample Parquet v2' \
+DORIS_CATALOG='codex_iceberg_check' \
+DORIS_DB='format_v1' \
+EXTERNAL_TABLE_NAME='sample_parquet' \
+EXTERNAL_GROUP_FIELD='city' \
+EXTERNAL_METRIC_FIELD='col_integer' \
+EXTERNAL_TIME_FIELD='col_date' \
+bash scripts/validate-external-catalog.sh
+```
+
+Observed results:
+
+1. Connection validation succeeded.
+2. Metabase created a new Doris database entry and synced `sample_parquet` with 17 fields from `format_v1`.
+3. Native query succeeded with:
+
+```text
+row_count  total_metric
+1000       -9735230212
+```
+
+4. Grouped MBQL query succeeded with:
+
+```text
+city      total_metric
+Beijing   -2241680332
+Hangzhou  -2751211079
+Hefei     -2587118164
+Shanghai  -2155220637
+```
+
+5. Temporal breakout on `col_date` succeeded with:
+
+```text
+1969-09-21T00:00:00+08:00   340
+2000-12-31T00:00:00+08:00   316
+2969-02-03T00:00:00+08:00   344
+```
+
+During this validation, the helper script needed one robustness fix: a newly created Metabase database entry can expose
+the target table before its field list is fully populated. The script now waits for the requested group, metric, and
+optional time fields to appear in metadata before resolving field IDs.
+
+This means the driver now has three distinct real Metabase-validated external catalog paths:
 
 1. Hive/HMS-style external catalog
 2. JDBC external catalog
+3. Iceberg external catalog
 
 ## FE-side external catalog sample verification
 

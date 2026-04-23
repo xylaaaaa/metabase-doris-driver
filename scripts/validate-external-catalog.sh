@@ -95,6 +95,45 @@ PY
   return 1
 }
 
+wait_for_field_metadata() {
+  local target_table="$1"
+  local group_field="$2"
+  local metric_field="$3"
+  local time_field="${4:-}"
+  local output_file="$5"
+  local attempts="${6:-30}"
+  local sleep_seconds="${7:-2}"
+  for _ in $(seq 1 "$attempts"); do
+    if TARGET_TABLE="$target_table" TARGET_GROUP_FIELD="$group_field" TARGET_METRIC_FIELD="$metric_field" TARGET_TIME_FIELD="$time_field" TARGET_FILE="$output_file" python - <<'PY'
+import json
+import os
+
+obj = json.load(open(os.environ["TARGET_FILE"]))
+target_table = os.environ["TARGET_TABLE"]
+group_field = os.environ["TARGET_GROUP_FIELD"]
+metric_field = os.environ["TARGET_METRIC_FIELD"]
+time_field = os.environ.get("TARGET_TIME_FIELD", "")
+
+for table in obj.get("tables", []):
+    if table.get("name") != target_table:
+        continue
+    fields = {f["name"] for f in table.get("fields", [])}
+    if group_field not in fields or metric_field not in fields:
+        raise SystemExit(1)
+    if time_field and time_field not in fields:
+        raise SystemExit(1)
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+    curl_no_proxy -H "Cookie: $COOKIE" "$METABASE_URL/api/database/$DB_ID/metadata" >"$output_file"
+  done
+  return 1
+}
+
 echo "[1/6] Metabase health"
 curl_no_proxy "$METABASE_URL/api/health"
 echo
@@ -136,6 +175,11 @@ fi
 
 if ! wait_for_table_metadata "$DB_ID" "$EXTERNAL_TABLE_NAME" "$TMP_DB_META"; then
   echo "Timed out waiting for table '$EXTERNAL_TABLE_NAME' to appear in metadata for database id $DB_ID" >&2
+  exit 1
+fi
+
+if ! wait_for_field_metadata "$EXTERNAL_TABLE_NAME" "$EXTERNAL_GROUP_FIELD" "$EXTERNAL_METRIC_FIELD" "$EXTERNAL_TIME_FIELD" "$TMP_DB_META"; then
+  echo "Timed out waiting for fields '$EXTERNAL_GROUP_FIELD', '$EXTERNAL_METRIC_FIELD' and optional '$EXTERNAL_TIME_FIELD' to appear in metadata for table '$EXTERNAL_TABLE_NAME'" >&2
   exit 1
 fi
 
