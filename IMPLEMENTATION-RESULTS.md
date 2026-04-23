@@ -758,16 +758,51 @@ c2 array<array<boolean>> type/Array
 c15 array<map<boolean,boolean>> type/Array
 ```
 
+### Hive/HMS struct metadata sample
+
+```text
+catalog: test_hive2_external_sql_block_rule
+database: openx_json
+table: json_table
+expected:
+  numbers -> type/Array
+  scores -> type/Dictionary
+  details -> type/*
+```
+
+Observed metadata result:
+
+```text
+numbers array<int> type/Array
+scores map<text,int> type/Dictionary
+details struct<a:int,b:text,c:bigint> type/*
+```
+
+### Paimon struct metadata sample
+
+```text
+catalog: paimon_local_test
+database: db1
+table: row_native_test
+expected:
+  c_row -> type/*
+```
+
+Observed metadata result:
+
+```text
+c_row struct<c_boolean:boolean,...,c_row:struct<...>> type/*
+```
+
 This shows that top-level complex type display is now backed by both:
 
 1. mapping tests in the driver
-2. live Metabase metadata verification for JDBC and Paimon external catalogs
+2. live Metabase metadata verification for JDBC, Paimon, and Hive/HMS external catalogs
 
-What is still not in the validated external matrix:
+Observed gap still remaining:
 
-1. a real external `STRUCT` sample
-2. a real external `JSON` sample
-3. a real external `VARIANT` sample
+1. a real JDBC external `json_col` sample currently syncs as `type/Text`, not `type/JSON`
+2. no real external `VARIANT` sample has been validated yet
 
 ## Summary
 

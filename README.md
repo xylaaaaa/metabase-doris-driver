@@ -192,9 +192,16 @@ Top-level complex type metadata has been validated against these real external c
    - `complex_tab.c3 map<varchar(10),boolean>` -> `type/Dictionary`
    - `array_nested.c2 array<array<boolean>>` -> `type/Array`
    - `array_nested.c15 array<map<boolean,boolean>>` -> `type/Array`
+   - `row_native_test.c_row struct<...>` -> `type/*`
+3. Hive/HMS catalog:
+   - `json_table.numbers array<int>` -> `type/Array`
+   - `json_table.scores map<text,int>` -> `type/Dictionary`
+   - `json_table.details struct<a:int,b:text,c:bigint>` -> `type/*`
 
-External catalog samples for top-level `STRUCT`, `JSON`, and `VARIANT` metadata are not yet included in the validated
-matrix, even though the driver has mapping rules for them.
+Known gaps in the current validated matrix:
+
+1. A JDBC external `json_col` sample currently syncs as `type/Text`, not `type/JSON`
+2. No real external `VARIANT` sample has been validated yet
 
 ## External Catalog Validation
 
@@ -277,6 +284,17 @@ export DORIS_CATALOG="paimon_local_test"
 export DORIS_DB="db1"
 export COMPLEX_TABLE_NAME="complex_tab"
 export EXPECTED_FIELD_BASE_TYPES="c2:type/Array,c3:type/Dictionary"
+./scripts/validate-complex-metadata.sh
+```
+
+Hive/HMS complex-type metadata can also be validated:
+
+```bash
+export METABASE_DB_NAME="Local Doris External Hive OpenX JSON Metadata v1"
+export DORIS_CATALOG="test_hive2_external_sql_block_rule"
+export DORIS_DB="openx_json"
+export COMPLEX_TABLE_NAME="json_table"
+export EXPECTED_FIELD_BASE_TYPES="numbers:type/Array,scores:type/Dictionary,details:type/*"
 ./scripts/validate-complex-metadata.sh
 ```
 
