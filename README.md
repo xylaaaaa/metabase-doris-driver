@@ -187,6 +187,7 @@ Top-level complex type metadata has been validated against these real external c
 
 1. JDBC catalog:
    - `test_jni_complex_type.arr_text array<text>` -> `type/Array`
+   - `base.json_col json` -> `type/JSON`
 2. Paimon catalog:
    - `complex_tab.c2 array<bigint>` -> `type/Array`
    - `complex_tab.c3 map<varchar(10),boolean>` -> `type/Dictionary`
@@ -200,8 +201,7 @@ Top-level complex type metadata has been validated against these real external c
 
 Known gaps in the current validated matrix:
 
-1. A JDBC external `json_col` sample currently syncs as `type/Text`, not `type/JSON`
-2. No real external `VARIANT` sample has been validated yet
+1. No real external `VARIANT` sample has been validated yet
 
 ## External Catalog Validation
 
@@ -273,6 +273,17 @@ export DORIS_CATALOG="doris_jdbc_catalog"
 export DORIS_DB="regression_test_jdbc_catalog_p0"
 export COMPLEX_TABLE_NAME="test_jni_complex_type"
 export EXPECTED_FIELD_BASE_TYPES="arr_text:type/Array"
+./scripts/validate-complex-metadata.sh
+```
+
+JDBC JSON metadata can be validated the same way:
+
+```bash
+export METABASE_DB_NAME="Local Doris External JDBC JSON Base Metadata v1"
+export DORIS_CATALOG="doris_jdbc_catalog"
+export DORIS_DB="regression_test_jdbc_catalog_p0"
+export COMPLEX_TABLE_NAME="base"
+export EXPECTED_FIELD_BASE_TYPES="json_col:type/JSON"
 ./scripts/validate-complex-metadata.sh
 ```
 

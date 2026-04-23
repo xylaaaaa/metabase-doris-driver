@@ -722,6 +722,22 @@ Observed metadata result:
 arr_text array<text> type/Array
 ```
 
+### JDBC JSON metadata sample
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: base
+expected:
+  json_col -> type/JSON
+```
+
+Observed metadata result:
+
+```text
+json_col json type/JSON
+```
+
 ### Paimon complex-type metadata sample
 
 ```text
@@ -801,8 +817,7 @@ This shows that top-level complex type display is now backed by both:
 
 Observed gap still remaining:
 
-1. a real JDBC external `json_col` sample currently syncs as `type/Text`, not `type/JSON`
-2. no real external `VARIANT` sample has been validated yet
+1. no real external `VARIANT` sample has been validated yet
 
 ## Summary
 
