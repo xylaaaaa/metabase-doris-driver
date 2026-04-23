@@ -51,7 +51,8 @@ samples/connect/metabase-doris-driver/
 ├── build.clj
 ├── run-local-metabase.sh
 ├── scripts/
-│   └── validate-local.sh
+│   ├── validate-local.sh
+│   └── validate-external-catalog.sh
 ├── resources/
 │   ├── metabase-plugin.yaml
 │   └── metabase_driver/doris/icon.svg
@@ -113,6 +114,27 @@ The plugin exposes these Doris-specific fields:
 7. `SSL`
 8. `Additional options`
 
+## Support Matrix
+
+### Supported
+
+1. `internal` catalog metadata sync
+2. `internal` catalog native query execution
+3. `internal` catalog Query Builder basic aggregation, filter, and time bucketing
+4. top-level complex type display during sync
+
+### Experimental
+
+1. `external catalog` metadata sync using:
+   - `SHOW DATABASES FROM <catalog>`
+   - `SHOW TABLES FROM <catalog>.<db>`
+   - `DESC <catalog>.<db>.<table>`
+2. `external catalog` read-only native query execution
+3. `external catalog` Query Builder aggregation on table layouts that behave like regular relational tables
+
+Experimental means the SQL path exists in the driver and is intentionally in scope, but validation still depends on the
+specific external catalog backend and table type.
+
 ## Known Limitations
 
 This v1 sample intentionally keeps several capabilities disabled:
@@ -134,6 +156,33 @@ Complex type support in this sample is intentionally limited to **display / sync
 
 This means Metabase can see these columns during schema sync, but the driver does not yet unfold them into nested
 fields for Query Builder.
+
+## External Catalog Validation
+
+Use the external validation helper after you have already created a Doris database entry in Metabase that points at an
+external catalog.
+
+Example:
+
+```bash
+export METABASE_DB_NAME="Local Doris External Catalog Test"
+export DORIS_CATALOG="hive_catalog"
+export DORIS_DB="tpch"
+export EXTERNAL_TABLE_NAME="orders"
+export EXTERNAL_GROUP_FIELD="o_orderstatus"
+export EXTERNAL_METRIC_FIELD="o_totalprice"
+export EXTERNAL_TIME_FIELD="o_orderdate"
+./scripts/validate-external-catalog.sh
+```
+
+The script validates:
+
+1. Metabase health and login
+2. Doris connection validation for the target external catalog
+3. Metadata visibility for the configured Metabase database entry
+4. A native query against the target external table
+5. A grouped MBQL query using the configured group and metric fields
+6. An optional temporal breakout if `EXTERNAL_TIME_FIELD` is provided
 
 ## Verification Status
 

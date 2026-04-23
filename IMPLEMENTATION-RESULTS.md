@@ -338,7 +338,7 @@ This confirms:
 
 ## Not done yet
 
-1. External catalog support
+1. Broad external catalog validation coverage across different catalog types
 2. Native template parameters (`{{param}}`)
 3. FK metadata support
 4. Index metadata support
@@ -356,6 +356,26 @@ This confirms:
    - additional date functions
    - more database types
 5. Add `external catalog` validation once the v1 internal path is accepted.
+
+## External catalog validation status
+
+The driver now includes a dedicated smoke validation helper:
+
+- `scripts/validate-external-catalog.sh`
+
+What it covers:
+
+1. Connection validation for a Doris external catalog target
+2. Metadata lookup for an already-created Metabase database entry
+3. Native query execution against an external catalog table
+4. Grouped MBQL query execution against an external catalog table
+5. Optional temporal breakout when a time field is supplied
+
+What it does not claim yet:
+
+1. Validation across every external catalog implementation
+2. Validation for every external table type
+3. Nested-field support for complex external catalog columns
 
 ## Summary
 
