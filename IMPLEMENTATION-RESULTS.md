@@ -381,6 +381,63 @@ What it does not claim yet:
 2. Validation for every external table type
 3. Nested-field support for complex external catalog columns
 
+## Metabase end-to-end external catalog validation
+
+After fixing driver initialization issues and reloading the plugin, an end-to-end Metabase smoke validation was
+successfully executed against a Hive/HMS-style external catalog path:
+
+```text
+catalog: test_hive2_external_sql_block_rule
+database: tpch1_parquet
+table: orders
+group field: o_orderstatus
+metric field: o_totalprice
+time field: o_orderdate
+```
+
+Validation script:
+
+```bash
+METABASE_DB_NAME='Local Doris External Hive TPCH Orders v2' \
+DORIS_CATALOG='test_hive2_external_sql_block_rule' \
+DORIS_DB='tpch1_parquet' \
+EXTERNAL_TABLE_NAME='orders' \
+EXTERNAL_GROUP_FIELD='o_orderstatus' \
+EXTERNAL_METRIC_FIELD='o_totalprice' \
+EXTERNAL_TIME_FIELD='o_orderdate' \
+bash scripts/validate-external-catalog.sh
+```
+
+Observed results:
+
+1. Connection validation succeeded.
+2. Metabase created a new Doris database entry and synced 8 tables from `tpch1_parquet`.
+3. Native query succeeded with:
+
+```text
+row_count     total_metric
+1500000       226829306447.46
+```
+
+4. Grouped MBQL query succeeded with:
+
+```text
+o_orderstatus   total_metric
+F               109702414613.69
+O               110017774440.76
+P               7109117393.01
+```
+
+5. Temporal breakout on `o_orderdate` succeeded and returned day buckets starting at:
+
+```text
+1992-01-01T00:00:00+08:00  621
+1992-01-02T00:00:00+08:00  612
+1992-01-03T00:00:00+08:00  598
+```
+
+This means the driver now has one real Metabase-validated external catalog path, not just FE-side SQL validation.
+
 ## FE-side external catalog sample verification
 
 Even before running the full Metabase smoke flow, the Doris FE currently exposes a verified external catalog sample

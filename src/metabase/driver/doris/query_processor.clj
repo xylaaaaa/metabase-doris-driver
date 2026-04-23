@@ -3,7 +3,9 @@
    [clojure.string :as str]
    [metabase.driver :as driver]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
-   [metabase.driver.sql.query-processor :as sql.qp])
+   [metabase.driver.sql-jdbc.execute.old-impl :as sql-jdbc.old]
+   [metabase.driver.sql.query-processor :as sql.qp]
+   [metabase.util.log :as log])
   (:import
    (java.sql Connection ResultSet)))
 
@@ -72,7 +74,6 @@
   :monday)
 
 (defmethod driver/db-default-timezone :doris
-  "Fetch the default timezone from Doris FE. Falls back to UTC if query fails."
   [driver database]
   (sql-jdbc.execute/do-with-connection-with-options
    driver
@@ -88,8 +89,5 @@
          (log/warnf "Failed to fetch Doris system timezone, falling back to UTC: %s" (.getMessage e))
          "UTC")))))
 
-(defmethod driver/set-timezone! :doris
-  "Set the session timezone for the current connection. This affects datetime interpretation in queries."
-  [_ ^Connection conn timezone-id]
-  (with-open [stmt (.createStatement conn)]
-    (.execute stmt (format "SET time_zone = '%s'" timezone-id))))
+(defmethod sql-jdbc.old/set-timezone-sql :doris [_]
+  "SET time_zone = %s")

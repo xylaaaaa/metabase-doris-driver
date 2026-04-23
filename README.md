@@ -125,16 +125,22 @@ The plugin exposes these Doris-specific fields:
 2. `internal` catalog native query execution
 3. `internal` catalog Query Builder basic aggregation, filter, and time bucketing
 4. top-level complex type display during sync
-5. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
+5. one validated Hive/HMS-style external catalog path:
+   - `test_hive2_external_sql_block_rule.tpch1_parquet.orders`
+   - native query
+   - grouped MBQL query
+   - temporal breakout
+6. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
 
 ### Experimental
 
-1. `external catalog` metadata sync using:
+1. other `external catalog` metadata sync using:
    - `SHOW DATABASES FROM <catalog>`
    - `SHOW TABLES FROM <catalog>.<db>`
    - `DESC <catalog>.<db>.<table>`
-2. `external catalog` read-only native query execution
-3. `external catalog` Query Builder aggregation on table layouts that behave like regular relational tables
+2. external catalog read-only native query execution outside the validated Hive sample path
+3. external catalog Query Builder aggregation on table layouts that behave like regular relational tables outside the
+   validated Hive sample path
 
 Experimental means the SQL path exists in the driver and is intentionally in scope, but validation still depends on the
 specific external catalog backend and table type.
@@ -222,6 +228,12 @@ database: regression_test_jdbc_catalog_p0
 table: test_jni_complex_type
 interesting field: arr_text array<text>
 ```
+
+Validated Hive sample results now recorded in `IMPLEMENTATION-RESULTS.md`:
+
+1. native query count/sum succeeds
+2. grouped MBQL query by `o_orderstatus` succeeds
+3. temporal breakout by `o_orderdate` succeeds
 
 ## Verification Status
 

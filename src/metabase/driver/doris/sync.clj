@@ -83,27 +83,37 @@
 
 (defn- get-schemas
   [catalog ^Connection conn]
-  (with-open [stmt (.createStatement conn)
-              rs   (.executeQuery stmt (describe-catalog-sql catalog))]
+  (let [sql (describe-catalog-sql catalog)]
+    (log/debugf "Doris sync: list schemas with SQL [%s]" sql)
+    (with-open [stmt (.createStatement conn)
+                rs   (.executeQuery stmt sql)]
     (loop [schemas []]
       (if (.next ^ResultSet rs)
         (let [schema (.getString ^ResultSet rs 1)]
           (recur (if (contains? excluded-schemas schema)
                    schemas
                    (conj schemas schema))))
-        schemas))))
+        (do
+          (log/debugf "Doris sync: catalog=%s schemas=%s"
+                     (doris.conn/normalize-catalog catalog) schemas)
+          schemas))))))
 
 (defn- get-tables-in-schema
   "Fetch tables from a schema. Throws exception if the query fails (e.g., catalog not found, permission denied).
   Returns empty vector only if the schema genuinely has no tables."
   [catalog ^Connection conn schema]
-  (with-open [stmt (.createStatement conn)
-              rs   (.executeQuery stmt (describe-schema-sql catalog schema))]
+  (let [sql (describe-schema-sql catalog schema)]
+    (log/debugf "Doris sync: list tables with SQL [%s]" sql)
+    (with-open [stmt (.createStatement conn)
+                rs   (.executeQuery stmt sql)]
     (loop [tables []]
       (if (.next ^ResultSet rs)
         (recur (conj tables {:name   (.getString ^ResultSet rs 1)
                              :schema schema}))
-        tables))))
+        (do
+          (log/debugf "Doris sync: catalog=%s schema=%s tables=%s"
+                     (doris.conn/normalize-catalog catalog) schema (map :name tables))
+          tables))))))
 
 (defmethod driver/describe-database* :doris
   [driver database]
@@ -122,6 +132,8 @@
                            (mapcat (fn [schema]
                                      (get-tables-in-schema catalog conn schema)))
                            schemas)]
+         (log/debugf "Doris sync: describe-database catalog=%s dbname=%s table-count=%d"
+                    catalog dbname (count tables))
          {:tables tables})))))
 
 (defmethod driver/describe-table :doris
