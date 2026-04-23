@@ -1,0 +1,145 @@
+name: Self-Hosted Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_external_catalog:
+        description: "Run external catalog smoke validation"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      doris_catalog:
+        description: "External catalog name"
+        required: false
+        default: "doris_jdbc_catalog"
+      doris_db:
+        description: "External catalog database"
+        required: false
+        default: "regression_test_jdbc_catalog_p0"
+      external_table_name:
+        description: "External table used for grouped query smoke test"
+        required: false
+        default: "test_insert_order"
+      external_group_field:
+        description: "Group field for external MBQL smoke test"
+        required: false
+        default: "gameid"
+      external_metric_field:
+        description: "Metric field for external MBQL smoke test"
+        required: false
+        default: "aid"
+      external_time_field:
+        description: "Optional temporal field for external breakout smoke test"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on:
+      - self-hosted
+
+    env:
+      JAVA_HOME: ${{ vars.JAVA_HOME || '/mnt/disk1/chenjunwei/tools/jdk-21' }}
+      METABASE_HOME: ${{ vars.METABASE_HOME || '/mnt/disk1/chenjunwei/tools/metabase-local' }}
+      MB_PLUGINS_DIR: ${{ vars.MB_PLUGINS_DIR || '/mnt/disk1/chenjunwei/tools/metabase-local/plugins' }}
+      MB_DB_FILE: ${{ vars.MB_DB_FILE || '/mnt/disk1/chenjunwei/tools/metabase-local/metabase-app-db' }}
+      MB_JETTY_PORT: ${{ vars.MB_JETTY_PORT || '3001' }}
+      METABASE_URL: ${{ vars.METABASE_URL || 'http://127.0.0.1:3001' }}
+      METABASE_USERNAME: ${{ secrets.METABASE_USERNAME || 'codex.local@example.com' }}
+      METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD || 'MetabaseTest123' }}
+      DORIS_HOST: ${{ vars.DORIS_HOST || '127.0.0.1' }}
+      DORIS_PORT: ${{ vars.DORIS_PORT || '9030' }}
+      DORIS_USER: ${{ secrets.DORIS_USER || 'root' }}
+      DORIS_PASSWORD: ${{ secrets.DORIS_PASSWORD || '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: latest
+
+      - name: Build source-only driver JAR
+        run: clojure -T:build jar
+
+      - name: Install plugin JAR into Metabase plugin directory
+        run: |
+          mkdir -p "$MB_PLUGINS_DIR"
+          cp target/doris.metabase-driver.jar "$MB_PLUGINS_DIR/"
+
+      - name: Start Metabase if not already running
+        run: |
+          if curl -sS "$METABASE_URL/api/health" >/tmp/metabase-health.json 2>/dev/null; then
+            echo "Metabase already running at $METABASE_URL"
+          else
+            nohup ./run-local-metabase.sh >/tmp/metabase-self-hosted.log 2>&1 &
+            echo $! >/tmp/metabase-self-hosted.pid
+          fi
+
+      - name: Wait for Metabase health
+        run: |
+          for _ in $(seq 1 90); do
+            if curl -sS "$METABASE_URL/api/health" >/tmp/metabase-health.json 2>/dev/null; then
+              cat /tmp/metabase-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -n 120 /tmp/metabase-self-hosted.log || true
+          exit 1
+
+      - name: Validate internal catalog smoke path
+        env:
+          DORIS_CATALOG: internal
+          DORIS_DB: metabase_driver_test
+          METABASE_DB_NAME: Local Doris V1 Test
+          TARGET_TABLE_NAME: metabase_v1_orders
+          GROUP_FIELD_NAME: category
+          METRIC_FIELD_NAME: amount
+          TIME_FIELD_NAME: event_time
+        run: bash scripts/validate-local.sh
+
+      - name: Validate external catalog smoke path
+        if: ${{ inputs.run_external_catalog == 'true' }}
+        env:
+          METABASE_DB_NAME: Local Doris External Catalog Test
+          DORIS_CATALOG: ${{ inputs.doris_catalog }}
+          DORIS_DB: ${{ inputs.doris_db }}
+          EXTERNAL_TABLE_NAME: ${{ inputs.external_table_name }}
+          EXTERNAL_GROUP_FIELD: ${{ inputs.external_group_field }}
+          EXTERNAL_METRIC_FIELD: ${{ inputs.external_metric_field }}
+          EXTERNAL_TIME_FIELD: ${{ inputs.external_time_field }}
+        run: bash scripts/validate-external-catalog.sh
+
+      - name: Upload integration logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs
+          path: |
+            /tmp/metabase-self-hosted.log
+            /tmp/metabase-doris-driver*.json
+            /tmp/metabase-health.json
+          if-no-files-found: ignore
+
+      - name: Stop Metabase started by workflow
+        if: always()
+        run: |
+          if [[ -f /tmp/metabase-self-hosted.pid ]]; then
+            kill "$(cat /tmp/metabase-self-hosted.pid)" || true
+            rm -f /tmp/metabase-self-hosted.pid
+          fi

@@ -29,19 +29,78 @@ curl_no_proxy() {
   env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY curl -sS "$@"
 }
 
-echo "[1/6] Metabase health"
-curl_no_proxy "$METABASE_URL/api/health"
-echo
-
-echo "[2/6] Login"
-COOKIE="$(
+get_cookie() {
   curl_no_proxy -D - -o /dev/null \
     -H "Content-Type: application/json" \
     -X POST "$METABASE_URL/api/session" \
     -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\"}" \
   | awk '/Set-Cookie: metabase.SESSION=/{print $2}' \
   | cut -d';' -f1
+}
+
+find_database_id() {
+  local target_name="$1"
+  local output_file="$2"
+  curl_no_proxy -H "Cookie: $COOKIE" "$METABASE_URL/api/database" >"$output_file"
+  TARGET_NAME="$target_name" TARGET_FILE="$output_file" python - <<'PY'
+import json
+import os
+
+payload = json.load(open(os.environ["TARGET_FILE"]))
+target = os.environ["TARGET_NAME"]
+for db in payload.get("data", []):
+    if db.get("name") == target:
+        print(db["id"])
+        break
+PY
+}
+
+create_database_entry() {
+  local database_name="$1"
+  local body
+  body="$(cat <<JSON
+{"name":"$database_name","engine":"doris","details":{"host":"$DORIS_HOST","port":$DORIS_PORT,"catalog":"$DORIS_CATALOG","dbname":"$DORIS_DB","user":"$DORIS_USER","password":"$DORIS_PASSWORD","ssl":false},"is_full_sync":true,"auto_run_queries":true}
+JSON
 )"
+  curl_no_proxy \
+    -H "Cookie: $COOKIE" \
+    -H "Content-Type: application/json" \
+    -X POST "$METABASE_URL/api/database" \
+    -d "$body" >/tmp/metabase-doris-driver-ext-create.json
+}
+
+wait_for_table_metadata() {
+  local db_id="$1"
+  local target_table="$2"
+  local output_file="$3"
+  local attempts="${4:-60}"
+  local sleep_seconds="${5:-2}"
+  for _ in $(seq 1 "$attempts"); do
+    curl_no_proxy -H "Cookie: $COOKIE" "$METABASE_URL/api/database/$db_id/metadata" >"$output_file"
+    if TARGET_TABLE="$target_table" TARGET_FILE="$output_file" python - <<'PY'
+import json
+import os
+obj = json.load(open(os.environ["TARGET_FILE"]))
+target = os.environ["TARGET_TABLE"]
+for table in obj.get("tables", []):
+    if table.get("name") == target:
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+  done
+  return 1
+}
+
+echo "[1/6] Metabase health"
+curl_no_proxy "$METABASE_URL/api/health"
+echo
+
+echo "[2/6] Login"
+COOKIE="$(get_cookie)"
 
 if [[ -z "$COOKIE" ]]; then
   echo "Failed to obtain metabase session cookie" >&2
@@ -62,27 +121,23 @@ echo "[4/6] Resolve existing Metabase database and metadata"
 TMP_DB_LIST="/tmp/metabase-doris-driver-ext-databases.json"
 TMP_DB_META="/tmp/metabase-doris-driver-ext-metadata.json"
 
-curl_no_proxy -H "Cookie: $COOKIE" "$METABASE_URL/api/database" >"$TMP_DB_LIST"
-
-DB_ID="$(
-  python - <<'PY'
-import json, os
-payload = json.load(open("/tmp/metabase-doris-driver-ext-databases.json"))
-target = os.environ["METABASE_DB_NAME"]
-for db in payload.get("data", []):
-    if db.get("name") == target:
-        print(db["id"])
-        break
-PY
-)"
+DB_ID="$(find_database_id "$METABASE_DB_NAME" "$TMP_DB_LIST")"
 
 if [[ -z "$DB_ID" ]]; then
-  echo "Could not locate Metabase database entry named: $METABASE_DB_NAME" >&2
-  echo "Create the database entry in Metabase first, then rerun this script." >&2
+  echo "Database '$METABASE_DB_NAME' not found in Metabase. Creating it now."
+  create_database_entry "$METABASE_DB_NAME"
+  DB_ID="$(find_database_id "$METABASE_DB_NAME" "$TMP_DB_LIST")"
+fi
+
+if [[ -z "$DB_ID" ]]; then
+  echo "Could not locate or create Metabase database entry named: $METABASE_DB_NAME" >&2
   exit 1
 fi
 
-curl_no_proxy -H "Cookie: $COOKIE" "$METABASE_URL/api/database/$DB_ID/metadata" >"$TMP_DB_META"
+if ! wait_for_table_metadata "$DB_ID" "$EXTERNAL_TABLE_NAME" "$TMP_DB_META"; then
+  echo "Timed out waiting for table '$EXTERNAL_TABLE_NAME' to appear in metadata for database id $DB_ID" >&2
+  exit 1
+fi
 
 read -r TABLE_ID GROUP_FIELD_ID METRIC_FIELD_ID TIME_FIELD_ID <<<"$(
   python - <<'PY'
