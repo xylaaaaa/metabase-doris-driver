@@ -162,16 +162,25 @@ fields for Query Builder.
 Use the external validation helper after you have already created a Doris database entry in Metabase that points at an
 external catalog.
 
+Known FE-side sample target discovered in the current Doris environment:
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: test_insert_order
+group field: gameid
+metric field: aid
+```
+
 Example:
 
 ```bash
 export METABASE_DB_NAME="Local Doris External Catalog Test"
-export DORIS_CATALOG="hive_catalog"
-export DORIS_DB="tpch"
-export EXTERNAL_TABLE_NAME="orders"
-export EXTERNAL_GROUP_FIELD="o_orderstatus"
-export EXTERNAL_METRIC_FIELD="o_totalprice"
-export EXTERNAL_TIME_FIELD="o_orderdate"
+export DORIS_CATALOG="doris_jdbc_catalog"
+export DORIS_DB="regression_test_jdbc_catalog_p0"
+export EXTERNAL_TABLE_NAME="test_insert_order"
+export EXTERNAL_GROUP_FIELD="gameid"
+export EXTERNAL_METRIC_FIELD="aid"
 ./scripts/validate-external-catalog.sh
 ```
 
@@ -183,6 +192,32 @@ The script validates:
 4. A native query against the target external table
 5. A grouped MBQL query using the configured group and metric fields
 6. An optional temporal breakout if `EXTERNAL_TIME_FIELD` is provided
+
+If you want to inspect the same target directly on Doris FE before involving Metabase, these SQL statements are a good
+smoke set:
+
+```sql
+SHOW DATABASES FROM doris_jdbc_catalog;
+SHOW TABLES FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0;
+DESC doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_insert_order;
+
+SELECT count(*) AS row_count, sum(aid) AS total_aid
+FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_insert_order;
+
+SELECT gameid, sum(aid) AS total_aid
+FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_insert_order
+GROUP BY gameid
+ORDER BY gameid;
+```
+
+There is also a simple complex-type sample in the same catalog:
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: test_jni_complex_type
+interesting field: arr_text array<text>
+```
 
 ## Verification Status
 

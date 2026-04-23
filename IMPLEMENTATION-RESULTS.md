@@ -344,7 +344,6 @@ This confirms:
 4. Index metadata support
 5. Upload / writeback support
 6. CI automation
-7. Remote repository / PR wiring
 
 ## Remaining follow-up items
 
@@ -376,6 +375,88 @@ What it does not claim yet:
 1. Validation across every external catalog implementation
 2. Validation for every external table type
 3. Nested-field support for complex external catalog columns
+
+## FE-side external catalog sample verification
+
+Even before running the full Metabase smoke flow, the Doris FE currently exposes a verified external catalog sample
+that matches the driver's experimental scope:
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: test_insert_order
+```
+
+Verified FE-side SQL:
+
+```sql
+SHOW DATABASES FROM doris_jdbc_catalog;
+SHOW TABLES FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0;
+DESC doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_insert_order;
+
+SELECT count(*) AS row_count, sum(aid) AS total_aid
+FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_insert_order;
+
+SELECT gameid, sum(aid) AS total_aid
+FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_insert_order
+GROUP BY gameid
+ORDER BY gameid;
+```
+
+Observed results:
+
+```text
+row_count total_aid
+2         2
+
+gameid total_aid
+g1     1
+g2     1
+```
+
+This provides a concrete external catalog target for the Metabase-side validation helper:
+
+```bash
+export METABASE_DB_NAME="Local Doris External Catalog Test"
+export DORIS_CATALOG="doris_jdbc_catalog"
+export DORIS_DB="regression_test_jdbc_catalog_p0"
+export EXTERNAL_TABLE_NAME="test_insert_order"
+export EXTERNAL_GROUP_FIELD="gameid"
+export EXTERNAL_METRIC_FIELD="aid"
+./scripts/validate-external-catalog.sh
+```
+
+## FE-side complex type sample verification
+
+A second table in the same catalog confirms that top-level complex type display is meaningful for external catalogs:
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: test_jni_complex_type
+field: arr_text array<text>
+```
+
+Verified FE-side SQL:
+
+```sql
+DESC doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_jni_complex_type;
+SELECT count(*) FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_jni_complex_type;
+SELECT id, name
+FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_jni_complex_type
+ORDER BY id
+LIMIT 5;
+```
+
+Observed result highlights:
+
+```text
+arr_text array<text>
+count(*) = 5
+```
+
+This supports the current v1 statement that complex types are visible at the top-level metadata layer even though
+nested-field unfolding remains disabled.
 
 ## Summary
 
