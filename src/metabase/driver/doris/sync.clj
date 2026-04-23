@@ -15,10 +15,14 @@
   #{"information_schema" "INFORMATION_SCHEMA" "__internal_schema" "mysql"})
 
 (defn quote-name
+  "Quote a SQL identifier with backticks, escaping any existing backticks."
   [s]
   (str "`" (str/replace (str s) #"`" "``") "`"))
 
 (defn describe-catalog-sql
+  "Generate SQL to list databases in a catalog.
+  For internal catalog: SHOW DATABASES
+  For external catalog: SHOW DATABASES FROM `catalog`"
   [catalog]
   (let [catalog (doris.conn/normalize-catalog catalog)]
     (if (= catalog doris.conn/default-catalog)
@@ -26,6 +30,9 @@
       (str "SHOW DATABASES FROM " (quote-name catalog)))))
 
 (defn describe-schema-sql
+  "Generate SQL to list tables in a schema.
+  For internal catalog: SHOW TABLES FROM `schema`
+  For external catalog: SHOW TABLES FROM `catalog`.`schema`"
   [catalog schema]
   (let [catalog (doris.conn/normalize-catalog catalog)]
     (if (= catalog doris.conn/default-catalog)
@@ -33,6 +40,9 @@
       (str "SHOW TABLES FROM " (quote-name catalog) "." (quote-name schema)))))
 
 (defn describe-table-sql
+  "Generate SQL to describe a table's columns.
+  For internal catalog: DESC `schema`.`table`
+  For external catalog: DESC `catalog`.`schema`.`table`"
   [catalog schema table]
   (let [catalog (doris.conn/normalize-catalog catalog)]
     (if (= catalog doris.conn/default-catalog)
@@ -52,19 +62,16 @@
         schemas))))
 
 (defn- get-tables-in-schema
+  "Fetch tables from a schema. Throws exception if the query fails (e.g., catalog not found, permission denied).
+  Returns empty vector only if the schema genuinely has no tables."
   [catalog ^Connection conn schema]
-  (try
-    (with-open [stmt (.createStatement conn)
-                rs   (.executeQuery stmt (describe-schema-sql catalog schema))]
-      (loop [tables []]
-        (if (.next ^ResultSet rs)
-          (recur (conj tables {:name   (.getString ^ResultSet rs 1)
-                               :schema schema}))
-          tables)))
-    (catch Exception e
-      (log/warnf "Could not get tables from %s.%s: %s"
-                 (doris.conn/normalize-catalog catalog) schema (.getMessage e))
-      [])))
+  (with-open [stmt (.createStatement conn)
+              rs   (.executeQuery stmt (describe-schema-sql catalog schema))]
+    (loop [tables []]
+      (if (.next ^ResultSet rs)
+        (recur (conj tables {:name   (.getString ^ResultSet rs 1)
+                             :schema schema}))
+        tables))))
 
 (defmethod driver/describe-database* :doris
   [driver database]

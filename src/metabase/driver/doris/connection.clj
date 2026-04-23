@@ -12,22 +12,28 @@
 (def fallback-db "information_schema")
 
 (defn normalize-catalog
+  "Normalize catalog name, defaulting to 'internal' if blank or nil."
   [catalog]
   (let [catalog (some-> catalog str str/trim)]
     (if (str/blank? catalog) default-catalog catalog)))
 
 (defn normalize-db
+  "Normalize database name, returning nil if blank."
   [dbname]
   (let [dbname (some-> dbname str str/trim)]
     (when-not (str/blank? dbname) dbname)))
 
 (defn jdbc-db-target
+  "Build the JDBC database target string in the format 'catalog.database'.
+  Defaults to 'internal.information_schema' if both catalog and dbname are unspecified."
   [{:keys [catalog dbname]}]
   (let [catalog (normalize-catalog catalog)
         dbname  (normalize-db dbname)]
     (str catalog "." (or dbname fallback-db))))
 
 (defn parse-additional-options
+  "Parse JDBC additional options string (format: 'key1=value1&key2=value2') into a map.
+  Returns empty map if input is blank or nil."
   [additional-options]
   (if (str/blank? additional-options)
     {}
@@ -51,7 +57,6 @@
       :sslMode                  (if ssl "trust" "disable")
       :tinyInt1isBit            "false"
       :yearIsDateType           "false"
-      :serverTimezone           "UTC"
       :allowPublicKeyRetrieval  "true"
       :zeroDateTimeBehavior     "convertToNull"
       :useUnicode               "true"
