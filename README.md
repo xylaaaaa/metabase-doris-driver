@@ -130,7 +130,12 @@ The plugin exposes these Doris-specific fields:
    - native query
    - grouped MBQL query
    - temporal breakout
-6. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
+6. one validated JDBC external catalog path:
+   - `doris_jdbc_catalog.regression_test_jdbc_catalog_p0.base`
+   - native query
+   - grouped MBQL query
+   - temporal breakout
+7. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
 
 ### Experimental
 
@@ -234,6 +239,12 @@ Validated Hive sample results now recorded in `IMPLEMENTATION-RESULTS.md`:
 1. native query count/sum succeeds
 2. grouped MBQL query by `o_orderstatus` succeeds
 3. temporal breakout by `o_orderdate` succeeds
+
+Validated JDBC catalog sample results also recorded in `IMPLEMENTATION-RESULTS.md`:
+
+1. native query count/sum on `base` succeeds
+2. grouped MBQL query by `varchar_col` succeeds
+3. temporal breakout by `date_col` succeeds
 
 ## Verification Status
 

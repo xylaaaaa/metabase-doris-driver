@@ -438,6 +438,63 @@ P               7109117393.01
 
 This means the driver now has one real Metabase-validated external catalog path, not just FE-side SQL validation.
 
+## Metabase end-to-end JDBC external catalog validation
+
+A second end-to-end Metabase smoke validation was executed against the JDBC external catalog sample path:
+
+```text
+catalog: doris_jdbc_catalog
+database: regression_test_jdbc_catalog_p0
+table: base
+group field: varchar_col
+metric field: int_col
+time field: date_col
+```
+
+Validation script:
+
+```bash
+METABASE_DB_NAME='Local Doris External JDBC Base v1' \
+DORIS_CATALOG='doris_jdbc_catalog' \
+DORIS_DB='regression_test_jdbc_catalog_p0' \
+EXTERNAL_TABLE_NAME='base' \
+EXTERNAL_GROUP_FIELD='varchar_col' \
+EXTERNAL_METRIC_FIELD='int_col' \
+EXTERNAL_TIME_FIELD='date_col' \
+bash scripts/validate-external-catalog.sh
+```
+
+Observed results:
+
+1. Connection validation succeeded.
+2. Metabase created a new Doris database entry and synced 10 tables from `regression_test_jdbc_catalog_p0`.
+3. Native query succeeded with:
+
+```text
+row_count  total_metric
+2          1
+```
+
+4. Grouped MBQL query succeeded with:
+
+```text
+varchar_col  total_metric
+NULL         NULL
+a            1
+```
+
+5. Temporal breakout on `date_col` succeeded with:
+
+```text
+NULL                        1
+2021-01-01T00:00:00+08:00   1
+```
+
+This means the driver now has two distinct real Metabase-validated external catalog paths:
+
+1. Hive/HMS-style external catalog
+2. JDBC external catalog
+
 ## FE-side external catalog sample verification
 
 Even before running the full Metabase smoke flow, the Doris FE currently exposes a verified external catalog sample
