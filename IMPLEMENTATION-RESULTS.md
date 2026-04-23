@@ -68,7 +68,10 @@ The current driver implements the intended v1 baseline:
    - decimal
    - string-like types
    - date / datetime / timestamp
-   - complex Doris-specific types downgraded to `type/*`
+   - `ARRAY` mapped to `:type/Array`
+   - `MAP` mapped to `:type/Dictionary`
+   - `JSON` mapped to `:type/JSON`
+   - `STRUCT` / `VARIANT` / `HLL` / `BITMAP` downgraded to `:type/*`
 6. Basic SQL dialect hooks for:
    - MySQL quoting
    - `from_unixtime`
@@ -83,6 +86,13 @@ The current driver implements the intended v1 baseline:
    - uploads
    - actions / writeback
    - nested field expansion
+
+In other words, the current v1 scope should be read as:
+
+1. `internal` catalog: primary validated target
+2. `external catalog`: basic sync/query path included in implementation, but not yet broadly validated across all
+   catalog types
+3. complex types: visible at the top-level metadata layer, but not yet unfolded into nested fields
 
 ## Environment prepared for validation
 

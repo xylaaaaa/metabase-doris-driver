@@ -26,12 +26,20 @@ This directory contains a standalone Apache Doris sample driver for Metabase com
 This is a v1, read-only driver sample with the following goals:
 
 1. Connect to Doris through the FE MySQL protocol endpoint.
-2. Sync databases, tables, and fields using Doris-native SQL.
+2. Sync catalogs, databases, tables, and fields using Doris-native SQL.
 3. Support basic Query Builder date and aggregation behavior.
-4. Avoid unstable capabilities such as native template parameters, table privilege sync, FK sync, and index sync.
+4. Expose Doris complex types at the top-level metadata layer during schema sync.
+5. Avoid unstable capabilities such as native template parameters, table privilege sync, FK sync, and index sync.
 
-Current implementation is optimized for `internal` catalog first. The connection model keeps an explicit `catalog`
-field so that future `external catalog` support does not require restructuring.
+Current implementation should be understood as:
+
+1. `internal` catalog is the primary validated v1 target.
+2. `external catalog` basic sync SQL paths are already included in the driver skeleton and kept in v1 scope, but still
+   require environment-specific validation per catalog type.
+3. complex types are visible in synced metadata as top-level field types, but are not unfolded into nested child fields.
+
+The connection model keeps an explicit `catalog` field so that the driver is built around Doris
+`catalog -> db -> table` semantics instead of classic single-level MySQL database semantics.
 
 ## Project Layout
 
@@ -116,6 +124,16 @@ This v1 sample intentionally keeps several capabilities disabled:
 5. Index metadata sync
 6. Upload / writeback actions
 7. Nested-field expansion
+
+Complex type support in this sample is intentionally limited to **display / sync visibility**:
+
+1. `ARRAY` -> `:type/Array`
+2. `MAP` -> `:type/Dictionary`
+3. `JSON` -> `:type/JSON`
+4. `STRUCT` / `VARIANT` / `HLL` / `BITMAP` -> `:type/*`
+
+This means Metabase can see these columns during schema sync, but the driver does not yet unfold them into nested
+fields for Query Builder.
 
 ## Verification Status
 
