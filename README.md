@@ -178,6 +178,33 @@ Current metadata completeness behavior:
 Experimental means the SQL path exists in the driver and is intentionally in scope, but validation still depends on the
 specific external catalog backend and table type.
 
+### External Catalog Verification Matrix
+
+| Catalog Type | Sample Path | Metadata Sync | Native Query | Grouped MBQL | Temporal Breakout | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Hive/HMS | `test_hive2_external_sql_block_rule.tpch1_parquet.orders` | Yes | Yes | Yes | Yes | Baseline Hive-style read path |
+| JDBC | `doris_jdbc_catalog.regression_test_jdbc_catalog_p0.base` | Yes | Yes | Yes | Yes | Also used for JSON/HLL metadata validation |
+| Iceberg | `codex_iceberg_check.format_v1.sample_parquet` | Yes | Yes | Yes | Yes | Parquet-backed sample with date breakout |
+| Paimon | `paimon_local_test.db1.all_table` | Yes | Yes | Yes | Yes | Local sample with simple row data |
+| Remote Doris | `codex_remote_variant_catalog.codex_remote_variant_db.remote_variant_t` | Yes | N/A | N/A | N/A | Used for `VARIANT` metadata verification |
+| JDBC Bitmap | `doris_jdbc_catalog_query_bitmap.regression_test_jdbc_catalog_p0_query_bitmap.metric_table` | Yes | N/A | N/A | N/A | Used for `BITMAP` metadata verification |
+
+### Metadata Verification Matrix
+
+| Metadata Area | Status | Verified Catalogs | Notes |
+| --- | --- | --- | --- |
+| Schema filtering | Yes | JDBC | `include-schemas` live-verified; default system schema exclusion also active |
+| Nullability / required | Yes | JDBC | Fresh metadata sync confirmed `database_is_nullable` and `database_required` |
+| Comments -> description | Yes | JDBC | Fresh metadata sync confirmed `description` is populated from external comments |
+| Defaults | Partial | JDBC | FE SQL shows defaults, but MariaDB JDBC still returns `Default = null` for some external columns |
+| ARRAY top-level type | Yes | JDBC, Paimon, Hive/HMS, Iceberg | Verified as `type/Array` |
+| MAP top-level type | Yes | Paimon, Hive/HMS | Verified as `type/Dictionary` |
+| STRUCT top-level type | Yes | Paimon, Hive/HMS | Verified as `type/*` |
+| JSON top-level type | Yes | JDBC | Verified as `type/JSON` after Doris JDBC JSONB mapping fix |
+| VARIANT top-level type | Yes | Remote Doris | Verified as `type/*` |
+| HLL top-level type | Yes | JDBC | Verified as `type/*` |
+| BITMAP top-level type | Yes | JDBC | Verified as `type/*` |
+
 ## Known Limitations
 
 This v1 sample intentionally keeps several capabilities disabled:
