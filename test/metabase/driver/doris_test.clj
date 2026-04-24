@@ -2,6 +2,7 @@
   (:require
    [clojure.test :refer :all]
    [metabase.driver :as driver]
+   [metabase.driver.doris]
    [metabase.driver.doris.connection :as doris.conn]
    [metabase.driver.doris.sync :as doris.sync]
    [metabase.driver.doris.types :as doris.types]))
@@ -34,7 +35,7 @@
          (doris.sync/describe-schema-sql "hive_catalog" "tpch")))
   (is (= "SHOW FULL COLUMNS FROM `orders` FROM `internal_db`"
          (doris.sync/describe-table-sql "internal" "internal_db" "orders")))
-  (is (= "SHOW FULL COLUMNS FROM `orders` FROM `hive_catalog`.`tpch`"
+  (is (= "SHOW FULL COLUMNS FROM `hive_catalog`.`tpch`.`orders`"
          (doris.sync/describe-table-sql "hive_catalog" "tpch" "orders"))))
 
 (deftest full-column-row->field-test
@@ -79,7 +80,7 @@
     (is (true? (driver/database-supports? :doris :connection/multiple-databases nil))))
 
   (testing "v1 unsupported capabilities are disabled"
-    (is (false? (driver/database-supports? :doris :native-parameters nil)))
+    (is (true? (driver/database-supports? :doris :native-parameters nil)))
     (is (false? (driver/database-supports? :doris :parameterized-sql nil)))
     (is (false? (driver/database-supports? :doris :table-privileges nil)))
     (is (false? (driver/database-supports? :doris :metadata/key-constraints nil)))
@@ -90,3 +91,37 @@
     (is (false? (driver/database-supports? :doris :nested-field-columns nil)))
     (is (false? (driver/database-supports? :doris :uploads nil)))
     (is (false? (driver/database-supports? :doris :actions nil)))))
+
+(deftest native-parameter-substitution-test
+  (testing "Doris native queries support basic template-tag substitution"
+    (binding [driver/*driver* :doris]
+      (is (= {:query "SELECT * FROM test_insert_order WHERE aid = 2"
+              :template-tags {"aid" {:name "aid" :display-name "Aid" :type :number}}
+              :parameters [{:type :number
+                            :target [:variable [:template-tag "aid"]]
+                            :value 2}]
+              :params []}
+             (driver/substitute-native-parameters
+              :doris
+              {:query "SELECT * FROM test_insert_order WHERE aid = {{aid}}"
+               :template-tags {"aid" {:name "aid" :display-name "Aid" :type :number}}
+               :parameters [{:type :number
+                             :target [:variable [:template-tag "aid"]]
+                             :value 2}]}))))))
+
+(deftest native-parameter-optional-block-test
+  (testing "Doris native queries support optional blocks"
+    (binding [driver/*driver* :doris]
+      (is (= {:query "SELECT * FROM test_insert_order WHERE 1 = 1 AND pname = ?"
+              :template-tags {"pname" {:name "pname" :display-name "Pname" :type :text}}
+              :parameters [{:type :text
+                            :target [:variable [:template-tag "pname"]]
+                            :value "wow"}]
+              :params ["wow"]}
+             (driver/substitute-native-parameters
+              :doris
+              {:query "SELECT * FROM test_insert_order WHERE 1 = 1 [[AND pname = {{pname}}]]"
+               :template-tags {"pname" {:name "pname" :display-name "Pname" :type :text}}
+               :parameters [{:type :text
+                             :target [:variable [:template-tag "pname"]]
+                             :value "wow"}]}))))))

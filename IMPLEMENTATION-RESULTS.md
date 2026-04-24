@@ -78,18 +78,23 @@ The current driver implements the intended v1 baseline:
    - current datetime
    - `date_trunc`
    - `datetime-diff`
-7. Richer field metadata propagation for:
+7. Basic native template parameter support via the inherited SQL substitution path for:
+   - number
+   - text
+   - optional `[[ ... ]]` blocks
+8. Richer field metadata propagation for:
    - `database-default`
    - `database-is-nullable`
    - `database-required`
    - `field-comment`
-8. Configurable schema filtering for metadata sync via:
+9. Configurable schema filtering for metadata sync via:
    - default system schema exclusion
    - optional `include-schemas`
    - optional `exclude-schemas`
-9. Explicitly disabled unstable v1 capabilities:
-   - native parameters
+10. Explicitly disabled unstable v1 capabilities:
    - parameterized SQL capability advertisement
+   - field-filter template tags
+   - card / table reference template tags
    - FK metadata sync
    - index metadata sync
    - uploads
@@ -114,6 +119,7 @@ In other words, the current v1 scope should be read as:
 5. Nullability / required metadata
 6. Comment -> description propagation
 7. JDBC external default propagation after the Doris FE fix proposed in `apache/doris#62781`
+8. Basic native template parameters
 
 ### Still connector-dependent
 
@@ -122,8 +128,8 @@ In other words, the current v1 scope should be read as:
 
 ### Explicitly deferred past v1
 
-1. Native template parameters
-2. Parameterized SQL capability advertisement
+1. Parameterized SQL capability advertisement
+2. Field-filter, card-reference, and table-reference template tags
 3. Privilege / FK / index metadata
 4. Upload / writeback
 5. Nested field unfolding
@@ -234,6 +240,57 @@ This closes the previous JDBC external default gap. The validation stack for thi
 3. The FE-side fix used for this validation is proposed upstream in `apache/doris#62781`
 4. `scripts/validate-external-catalog.sh` now supports `EXTERNAL_DEFAULT_ASSERTIONS` so this metadata check can be
    carried by the same external smoke script
+
+### Native template parameters
+
+A live Metabase `/api/dataset` validation confirmed that basic Doris native template parameters now work through the
+community driver.
+
+Validated scenarios:
+
+1. numeric template tag substitution
+2. text template tag substitution inside an optional `[[ ... ]]` block
+
+Observed examples:
+
+```text
+query 1:
+  select count(*) as row_count, sum(amount) as total_amount
+  from metabase_v1_orders
+  where amount > {{min_amount}}
+
+parameters:
+  min_amount = 5
+
+generated native SQL:
+  select count(*) as row_count, sum(amount) as total_amount from metabase_v1_orders where amount > 5
+
+rows:
+  [[3, 32]]
+```
+
+```text
+query 2:
+  select count(*) as row_count
+  from metabase_v1_orders
+  where 1 = 1 [[and category = {{category}}]]
+
+parameters:
+  category = A
+
+generated native SQL:
+  select count(*) as row_count from metabase_v1_orders where 1 = 1 and category = ?
+
+rows:
+  [[2]]
+```
+
+This confirms that:
+
+1. the Doris driver can now advertise `:native-parameters`
+2. the inherited SQL substitution path works for basic variable tags
+3. optional block expansion also works for basic text variables
+4. advanced template-tag forms still remain out of scope for v1
 
 ## 1. Metabase startup
 
@@ -440,12 +497,12 @@ This confirms:
 
 ## Not done yet
 
-1. Broad external catalog validation coverage across different catalog types
-2. Native template parameters (`{{param}}`)
+1. Broad external catalog validation coverage outside the current sample matrix
+2. Advanced native template parameters such as field filters and card / table references
 3. FK metadata support
 4. Index metadata support
 5. Upload / writeback support
-6. CI automation
+6. Full self-hosted integration automation coverage for every validated external catalog path
 
 ## Remaining follow-up items
 

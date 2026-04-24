@@ -32,7 +32,7 @@ This is a v1, read-only driver sample with the following goals:
 3. Support basic Query Builder date and aggregation behavior.
 4. Expose Doris complex types at the top-level metadata layer during schema sync.
 5. Preserve richer column metadata such as nullability, default values, and comments during sync.
-6. Avoid unstable capabilities such as native template parameters, table privilege sync, FK sync, and index sync.
+6. Avoid unstable capabilities such as field-filter template tags, table privilege sync, FK sync, and index sync.
 
 Current implementation should be understood as:
 
@@ -71,22 +71,28 @@ The connection model keeps an explicit `catalog` field so that the driver is bui
    - nullability / required
    - comments -> description
    - JDBC external defaults, when Doris FE includes the fix proposed in `apache/doris#62781`
+7. Basic native template parameter support for:
+   - number
+   - text
+   - optional `[[ ... ]]` blocks
 
 ### Still experimental inside v1
 
 1. External catalog behavior outside the validated sample paths in this repository.
 2. Metadata completeness differences across connector types other than the validated JDBC path.
 3. Query Builder behavior on external table layouts that do not behave like regular relational tables.
+4. Native template parameter behavior beyond basic variable substitution.
 
 ### Explicitly out of v1 scope
 
-1. Native template parameters (`{{param}}`)
-2. Parameterized SQL capability advertisement
-3. Table privilege sync
-4. FK metadata sync
-5. Index metadata sync
-6. Upload / writeback actions
-7. Nested-field expansion
+1. Parameterized SQL capability advertisement
+2. Field-filter template tags
+3. Card / table reference template tags
+4. Table privilege sync
+5. FK metadata sync
+6. Index metadata sync
+7. Upload / writeback actions
+8. Nested-field expansion
 
 ## Project Layout
 
@@ -209,6 +215,10 @@ Current metadata completeness behavior:
    - grouped MBQL query
    - temporal breakout
 9. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
+10. basic native template parameter substitution for native SQL:
+    - numeric template tags
+    - text template tags
+    - optional `[[ ... ]]` blocks
 
 ### Experimental
 
@@ -219,6 +229,7 @@ Current metadata completeness behavior:
 2. external catalog read-only native query execution outside the validated Hive/JDBC/Iceberg/Paimon sample paths
 3. external catalog Query Builder aggregation on table layouts that behave like regular relational tables outside the
    validated Hive/JDBC/Iceberg/Paimon sample paths
+4. field-filter, card-reference, and other advanced native template-tag forms
 
 Experimental means the SQL path exists in the driver and is intentionally in scope, but validation still depends on the
 specific external catalog backend and table type.
@@ -242,6 +253,7 @@ specific external catalog backend and table type.
 | Nullability / required | Yes | JDBC | Fresh metadata sync confirmed `database_is_nullable` and `database_required` |
 | Comments -> description | Yes | JDBC | Fresh metadata sync confirmed `description` is populated from external comments |
 | Defaults | Yes* | JDBC | Fresh metadata sync confirmed `aid=0` and `pname=其他` for `test_insert_order`; current validation depends on the Doris FE fix proposed in `apache/doris#62781` |
+| Basic native template parameters | Yes | Internal | Live `/api/dataset` validation confirmed numeric and text substitution, including optional blocks |
 | ARRAY top-level type | Yes | JDBC, Paimon, Hive/HMS, Iceberg | Verified as `type/Array` |
 | MAP top-level type | Yes | Paimon, Hive/HMS | Verified as `type/Dictionary` |
 | STRUCT top-level type | Yes | Paimon, Hive/HMS | Verified as `type/*` |
@@ -254,13 +266,14 @@ specific external catalog backend and table type.
 
 This v1 sample intentionally keeps several capabilities disabled:
 
-1. Native template parameters (`{{param}}`)
-2. Parameterized SQL capability advertisement
-3. Table privilege sync
-4. FK metadata sync
-5. Index metadata sync
-6. Upload / writeback actions
-7. Nested-field expansion
+1. Parameterized SQL capability advertisement
+2. Field-filter template tags
+3. Card / table reference template tags
+4. Table privilege sync
+5. FK metadata sync
+6. Index metadata sync
+7. Upload / writeback actions
+8. Nested-field expansion
 
 Complex type support in this sample is intentionally limited to **display / sync visibility**:
 

@@ -31,7 +31,7 @@
                               :describe-default-expr            true
                               :describe-is-nullable             true
                               :fingerprint                      true
-                              :native-parameters                false
+                              :native-parameters                true
                               :parameterized-sql                false
                               :native-parameter-card-reference  false
                               :native-temporal-units            false
