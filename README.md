@@ -44,6 +44,50 @@ Current implementation should be understood as:
 The connection model keeps an explicit `catalog` field so that the driver is built around Doris
 `catalog -> db -> table` semantics instead of classic single-level MySQL database semantics.
 
+## V1 Final Checklist
+
+### V1 supported
+
+1. Read-only Doris connectivity through the FE MySQL protocol.
+2. `internal` catalog metadata sync, native query execution, and basic Query Builder support.
+3. Validated external catalog read paths for:
+   - Hive/HMS
+   - JDBC
+   - Iceberg
+   - Paimon
+4. Configurable schema filtering via:
+   - default system schema exclusion
+   - `Sync Schemas Include`
+   - `Sync Schemas Exclude`
+5. Top-level complex type visibility for:
+   - `ARRAY`
+   - `MAP`
+   - `STRUCT`
+   - `JSON`
+   - `VARIANT`
+   - `HLL`
+   - `BITMAP`
+6. Richer field metadata sync for:
+   - nullability / required
+   - comments -> description
+   - JDBC external defaults, when Doris FE includes the fix proposed in `apache/doris#62781`
+
+### Still experimental inside v1
+
+1. External catalog behavior outside the validated sample paths in this repository.
+2. Metadata completeness differences across connector types other than the validated JDBC path.
+3. Query Builder behavior on external table layouts that do not behave like regular relational tables.
+
+### Explicitly out of v1 scope
+
+1. Native template parameters (`{{param}}`)
+2. Parameterized SQL capability advertisement
+3. Table privilege sync
+4. FK metadata sync
+5. Index metadata sync
+6. Upload / writeback actions
+7. Nested-field expansion
+
 ## Project Layout
 
 ```text

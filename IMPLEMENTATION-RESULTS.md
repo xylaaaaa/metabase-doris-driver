@@ -103,6 +103,31 @@ In other words, the current v1 scope should be read as:
    catalog types
 3. complex types: visible at the top-level metadata layer, but not yet unfolded into nested fields
 
+## Current v1 status
+
+### Completed
+
+1. `internal` catalog read path
+2. Validated external catalog read paths for Hive/HMS, JDBC, Iceberg, and Paimon
+3. Top-level complex metadata validation for `ARRAY`, `MAP`, `STRUCT`, `JSON`, `VARIANT`, `HLL`, and `BITMAP`
+4. Schema filtering
+5. Nullability / required metadata
+6. Comment -> description propagation
+7. JDBC external default propagation after the Doris FE fix proposed in `apache/doris#62781`
+
+### Still connector-dependent
+
+1. Metadata completeness on external catalogs outside the validated JDBC path
+2. Query behavior on irregular external table layouts
+
+### Explicitly deferred past v1
+
+1. Native template parameters
+2. Parameterized SQL capability advertisement
+3. Privilege / FK / index metadata
+4. Upload / writeback
+5. Nested field unfolding
+
 ## Environment prepared for validation
 
 The following local runtime pieces were installed or prepared:
