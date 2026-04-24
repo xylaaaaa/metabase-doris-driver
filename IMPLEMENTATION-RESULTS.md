@@ -83,7 +83,11 @@ The current driver implements the intended v1 baseline:
    - `database-is-nullable`
    - `database-required`
    - `field-comment`
-8. Explicitly disabled unstable v1 capabilities:
+8. Configurable schema filtering for metadata sync via:
+   - default system schema exclusion
+   - optional `include-schemas`
+   - optional `exclude-schemas`
+9. Explicitly disabled unstable v1 capabilities:
    - native parameters
    - parameterized SQL capability advertisement
    - FK metadata sync
@@ -137,6 +141,64 @@ The generated JAR contains:
 4. Driver icon resources
 
 ## Runtime verification
+
+## Metadata hardening verification
+
+### Schema filtering
+
+After reloading Metabase with the updated plugin JAR, a fresh database entry was created with:
+
+```text
+catalog: doris_jdbc_catalog
+include-schemas: regression_test_jdbc_catalog_p0
+```
+
+Observed metadata result:
+
+```text
+schemas ['regression_test_jdbc_catalog_p0']
+table_count 10
+```
+
+This confirms that:
+
+1. default system schemas are filtered
+2. `include-schemas` is honored during sync
+3. sync scope is materially reduced for large external catalogs
+
+### Field metadata completeness
+
+A fresh JDBC external metadata sync confirmed:
+
+1. `database_is_nullable` and `database_required` are populated correctly
+2. external column comments now flow into Metabase `description`
+
+Observed examples:
+
+```text
+test_doris_jdbc_doris_in_tb.id
+  database_is_nullable = true
+  database_required = false
+  description = 主键id
+
+test_doris_jdbc_doris_in_tb.name
+  database_is_nullable = true
+  database_required = false
+  description = 名字
+```
+
+The same fresh metadata sync also confirmed a remaining gap for JDBC external defaults:
+
+```text
+test_insert_order.aid    database_default = null
+test_insert_order.pname  database_default = null
+```
+
+At the FE SQL layer, `SHOW FULL COLUMNS` still prints default values for these columns, but the MariaDB JDBC result set
+seen by the driver returns `null` for `Default` in this external path. This means:
+
+1. nullability and comments are now a driver-level success
+2. JDBC external default propagation is still partially limited by the upstream JDBC/protocol behavior
 
 ## 1. Metabase startup
 

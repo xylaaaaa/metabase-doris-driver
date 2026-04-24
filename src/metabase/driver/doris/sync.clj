@@ -11,8 +11,8 @@
   (:import
    (java.sql Connection ResultSet)))
 
-(def excluded-schemas
-  #{"information_schema" "INFORMATION_SCHEMA" "__internal_schema" "mysql"})
+(def system-excluded-schemas
+  #{"information_schema" "__internal_schema" "mysql"})
 
 (defn quote-name
   "Quote a SQL identifier with backticks, escaping any existing backticks."
@@ -50,9 +50,37 @@
       (str "SHOW FULL COLUMNS FROM "
            (quote-name catalog) "." (quote-name schema) "." (quote-name table)))))
 
-(defn- nullable?
+(defn parse-schema-filter-list
+  [value]
+  (if (str/blank? value)
+    #{}
+    (into #{}
+          (comp (map str/trim)
+                (remove str/blank?)
+                (map str/lower-case))
+          (str/split value #","))))
+
+(defn normalize-schema-name
+  [schema]
+  (some-> schema str str/trim str/lower-case))
+
+(defn schema-visible?
+  [{:keys [include-schemas exclude-schemas]} schema]
+  (let [schema-name      (normalize-schema-name schema)
+        included-schemas (parse-schema-filter-list include-schemas)
+        excluded-schemas (into system-excluded-schemas
+                               (parse-schema-filter-list exclude-schemas))]
+    (and schema-name
+         (not (contains? excluded-schemas schema-name))
+         (or (empty? included-schemas)
+             (contains? included-schemas schema-name)))))
+
+(defn- nullable-state
   [nullable-value]
-  (= "YES" (some-> nullable-value str str/upper-case)))
+  (case (some-> nullable-value str str/trim str/upper-case)
+    "YES" true
+    "NO" false
+    nil))
 
 (defn- normalize-default
   [default-value]
@@ -71,32 +99,37 @@
         col-type     (or (get row "Type") (get row :Type))
         nullable-val (or (get row "Null") (get row :Null))
         default-val  (or (get row "Default") (get row :Default))
-        comment-val  (or (get row "Comment") (get row :Comment))]
+        comment-val  (or (get row "Comment") (get row :Comment))
+        nullable?    (nullable-state nullable-val)]
     {:name                 col-name
      :database-type        col-type
      :base-type            (doris.types/doris-type->base-type col-type)
      :database-position    idx
      :database-default     (normalize-default default-val)
-     :database-is-nullable (nullable? nullable-val)
-     :database-required    (not (nullable? nullable-val))
+     :database-is-nullable nullable?
+     :database-required    (when (some? nullable?) (not nullable?))
+     :description          (normalize-comment comment-val)
      :field-comment        (normalize-comment comment-val)}))
 
 (defn- get-schemas
-  [catalog ^Connection conn]
+  [details catalog ^Connection conn]
   (let [sql (describe-catalog-sql catalog)]
     (log/debugf "Doris sync: list schemas with SQL [%s]" sql)
     (with-open [stmt (.createStatement conn)
                 rs   (.executeQuery stmt sql)]
-    (loop [schemas []]
-      (if (.next ^ResultSet rs)
-        (let [schema (.getString ^ResultSet rs 1)]
-          (recur (if (contains? excluded-schemas schema)
-                   schemas
-                   (conj schemas schema))))
-        (do
-          (log/debugf "Doris sync: catalog=%s schemas=%s"
-                     (doris.conn/normalize-catalog catalog) schemas)
-          schemas))))))
+      (loop [schemas []]
+        (if (.next ^ResultSet rs)
+          (let [schema (.getString ^ResultSet rs 1)]
+            (recur (if (schema-visible? details schema)
+                     (conj schemas schema)
+                     schemas)))
+          (do
+            (log/debugf "Doris sync: catalog=%s include-schemas=%s exclude-schemas=%s visible-schemas=%s"
+                        (doris.conn/normalize-catalog catalog)
+                        (:include-schemas details)
+                        (:exclude-schemas details)
+                        schemas)
+            schemas))))))
 
 (defn- get-tables-in-schema
   "Fetch tables from a schema. Throws exception if the query fails (e.g., catalog not found, permission denied).
@@ -117,7 +150,8 @@
 
 (defmethod driver/describe-database* :doris
   [driver database]
-  (let [{:keys [catalog dbname]} (driver.conn/effective-details database)
+  (let [details               (driver.conn/effective-details database)
+        {:keys [catalog dbname]} details
         catalog (doris.conn/normalize-catalog catalog)
         dbname  (doris.conn/normalize-db dbname)]
     (sql-jdbc.execute/do-with-connection-with-options
@@ -127,7 +161,7 @@
      (fn [^Connection conn]
        (let [schemas (if dbname
                        [dbname]
-                       (get-schemas catalog conn))
+                       (get-schemas details catalog conn))
              tables  (into #{}
                            (mapcat (fn [schema]
                                      (get-tables-in-schema catalog conn schema)))

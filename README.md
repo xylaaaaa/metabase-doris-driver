@@ -116,7 +116,24 @@ The plugin exposes these Doris-specific fields:
 5. `Username`
 6. `Password`
 7. `SSL`
-8. `Additional options`
+8. `Sync Schemas Include` (optional, comma-separated)
+9. `Sync Schemas Exclude` (optional, comma-separated)
+10. `Additional options`
+
+Schema filtering behavior:
+
+1. System schemas such as `information_schema`, `__internal_schema`, and `mysql` are excluded by default.
+2. `Sync Schemas Include` acts as an allowlist for metadata sync.
+3. `Sync Schemas Exclude` acts as a denylist for metadata sync.
+4. If both are provided, the exclude list wins.
+5. If `Database` is explicitly set, sync remains scoped to that single database.
+
+Current metadata completeness behavior:
+
+1. `database_is_nullable` and `database_required` are preserved from `SHOW FULL COLUMNS`.
+2. Column comments are also copied into Metabase `description` when the external catalog exposes them.
+3. Column defaults are passed through when the JDBC result set exposes them, but some external JDBC paths still return
+   `NULL` defaults even when the FE-side SQL text shows a default value.
 
 ## Support Matrix
 

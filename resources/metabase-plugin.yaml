@@ -33,6 +33,14 @@ driver:
           - ssl
           - ssh-tunnel
     - advanced-options-start
+    - name: include-schemas
+      display-name: Sync Schemas Include
+      required: false
+      helper-text: Optional comma-separated schema or database names to include during metadata sync.
+    - name: exclude-schemas
+      display-name: Sync Schemas Exclude
+      required: false
+      helper-text: Optional comma-separated schema or database names to exclude during metadata sync.
     - merge:
         - additional-options
         - placeholder: "allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8"
