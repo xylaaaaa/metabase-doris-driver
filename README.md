@@ -132,8 +132,9 @@ Current metadata completeness behavior:
 
 1. `database_is_nullable` and `database_required` are preserved from `SHOW FULL COLUMNS`.
 2. Column comments are also copied into Metabase `description` when the external catalog exposes them.
-3. Column defaults are passed through when the JDBC result set exposes them, but some external JDBC paths still return
-   `NULL` defaults even when the FE-side SQL text shows a default value.
+3. JDBC external column defaults are preserved in fresh Metabase metadata sync when Doris FE includes the
+   JDBC default propagation fix proposed in `apache/doris#62781`.
+4. Other external catalog types still depend on the metadata completeness exposed by the underlying Doris connector.
 
 ## Support Matrix
 
@@ -196,7 +197,7 @@ specific external catalog backend and table type.
 | Schema filtering | Yes | JDBC | `include-schemas` live-verified; default system schema exclusion also active |
 | Nullability / required | Yes | JDBC | Fresh metadata sync confirmed `database_is_nullable` and `database_required` |
 | Comments -> description | Yes | JDBC | Fresh metadata sync confirmed `description` is populated from external comments |
-| Defaults | Partial | JDBC | FE SQL shows defaults, but MariaDB JDBC still returns `Default = null` for some external columns |
+| Defaults | Yes* | JDBC | Fresh metadata sync confirmed `aid=0` and `pname=其他` for `test_insert_order`; current validation depends on the Doris FE fix proposed in `apache/doris#62781` |
 | ARRAY top-level type | Yes | JDBC, Paimon, Hive/HMS, Iceberg | Verified as `type/Array` |
 | MAP top-level type | Yes | Paimon, Hive/HMS | Verified as `type/Dictionary` |
 | STRUCT top-level type | Yes | Paimon, Hive/HMS | Verified as `type/*` |
@@ -275,6 +276,7 @@ export DORIS_DB="regression_test_jdbc_catalog_p0"
 export EXTERNAL_TABLE_NAME="test_insert_order"
 export EXTERNAL_GROUP_FIELD="gameid"
 export EXTERNAL_METRIC_FIELD="aid"
+export EXTERNAL_DEFAULT_ASSERTIONS="aid=0;pname=其他"
 ./scripts/validate-external-catalog.sh
 ```
 
@@ -283,9 +285,16 @@ The script validates:
 1. Metabase health and login
 2. Doris connection validation for the target external catalog
 3. Metadata visibility for the configured Metabase database entry
-4. A native query against the target external table
-5. A grouped MBQL query using the configured group and metric fields
-6. An optional temporal breakout if `EXTERNAL_TIME_FIELD` is provided
+4. Optional `database_default` assertions when `EXTERNAL_DEFAULT_ASSERTIONS` is provided
+5. A native query against the target external table
+6. A grouped MBQL query using the configured group and metric fields
+7. An optional temporal breakout if `EXTERNAL_TIME_FIELD` is provided
+
+`EXTERNAL_DEFAULT_ASSERTIONS` uses a semicolon-separated `field=value` format. For example:
+
+```text
+aid=0;pname=其他
+```
 
 If you want to inspect the same target directly on Doris FE before involving Metabase, these SQL statements are a good
 smoke set:

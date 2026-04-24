@@ -172,6 +172,8 @@ A fresh JDBC external metadata sync confirmed:
 
 1. `database_is_nullable` and `database_required` are populated correctly
 2. external column comments now flow into Metabase `description`
+3. JDBC external column defaults now flow into Metabase `database_default` after the Doris FE fix proposed in
+   `apache/doris#62781`
 
 Observed examples:
 
@@ -187,18 +189,26 @@ test_doris_jdbc_doris_in_tb.name
   description = 名字
 ```
 
-The same fresh metadata sync also confirmed a remaining gap for JDBC external defaults:
+The same fresh metadata sync now confirms JDBC external defaults are preserved:
 
 ```text
-test_insert_order.aid    database_default = null
-test_insert_order.pname  database_default = null
+test_insert_order.aid
+  database_default = 0
+  database_is_nullable = false
+
+test_insert_order.pname
+  database_default = 其他
+  database_is_nullable = false
 ```
 
-At the FE SQL layer, `SHOW FULL COLUMNS` still prints default values for these columns, but the MariaDB JDBC result set
-seen by the driver returns `null` for `Default` in this external path. This means:
+This closes the previous JDBC external default gap. The validation stack for this result was:
 
-1. nullability and comments are now a driver-level success
-2. JDBC external default propagation is still partially limited by the upstream JDBC/protocol behavior
+1. Doris FE `SHOW FULL COLUMNS FROM doris_jdbc_catalog.regression_test_jdbc_catalog_p0.test_insert_order`
+   returned `aid=0` and `pname=其他`
+2. Fresh Metabase metadata sync on the same table returned matching `database_default` values
+3. The FE-side fix used for this validation is proposed upstream in `apache/doris#62781`
+4. `scripts/validate-external-catalog.sh` now supports `EXTERNAL_DEFAULT_ASSERTIONS` so this metadata check can be
+   carried by the same external smoke script
 
 ## 1. Metabase startup
 

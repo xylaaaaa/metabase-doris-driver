@@ -17,6 +17,7 @@ EXTERNAL_TABLE_NAME="${EXTERNAL_TABLE_NAME:-}"
 EXTERNAL_GROUP_FIELD="${EXTERNAL_GROUP_FIELD:-}"
 EXTERNAL_METRIC_FIELD="${EXTERNAL_METRIC_FIELD:-}"
 EXTERNAL_TIME_FIELD="${EXTERNAL_TIME_FIELD:-}"
+EXTERNAL_DEFAULT_ASSERTIONS="${EXTERNAL_DEFAULT_ASSERTIONS:-}"
 
 for required in DORIS_CATALOG DORIS_DB METABASE_DB_NAME EXTERNAL_TABLE_NAME EXTERNAL_GROUP_FIELD EXTERNAL_METRIC_FIELD; do
   if [[ -z "${!required:-}" ]]; then
@@ -134,6 +135,71 @@ PY
   return 1
 }
 
+validate_default_metadata() {
+  local target_table="$1"
+  local assertions="$2"
+  local output_file="$3"
+
+  TARGET_TABLE="$target_table" TARGET_ASSERTIONS="$assertions" TARGET_FILE="$output_file" python - <<'PY'
+import json
+import os
+import sys
+
+obj = json.load(open(os.environ["TARGET_FILE"]))
+target_table = os.environ["TARGET_TABLE"]
+raw_assertions = os.environ["TARGET_ASSERTIONS"].strip()
+
+if not raw_assertions:
+    raise SystemExit(0)
+
+expected = {}
+for part in raw_assertions.split(";"):
+    part = part.strip()
+    if not part:
+        continue
+    if "=" not in part:
+        print(f"Invalid default assertion: {part}", file=sys.stderr)
+        raise SystemExit(2)
+    field_name, expected_value = part.split("=", 1)
+    expected[field_name.strip()] = expected_value
+
+for table in obj.get("tables", []):
+    if table.get("name") != target_table:
+        continue
+
+    fields = {f["name"]: f for f in table.get("fields", [])}
+    failures = []
+    for field_name, expected_value in expected.items():
+        if field_name not in fields:
+            failures.append(f"missing field {field_name}")
+            continue
+        actual = fields[field_name].get("database_default")
+        actual_text = "" if actual is None else str(actual)
+        if actual_text != expected_value:
+            failures.append(
+                f"{field_name}: expected default {expected_value!r}, got {actual_text!r}"
+            )
+
+    if failures:
+        print("Default metadata assertions failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        raise SystemExit(1)
+
+    for field_name in expected:
+        field = fields[field_name]
+        print(
+            f"default_ok {field_name}="
+            f"{field.get('database_default')!s} "
+            f"(database_type={field.get('database_type')}, base_type={field.get('base_type')})"
+        )
+    raise SystemExit(0)
+
+print(f"Could not find table metadata for {target_table}", file=sys.stderr)
+raise SystemExit(1)
+PY
+}
+
 echo "[1/6] Metabase health"
 curl_no_proxy "$METABASE_URL/api/health"
 echo
@@ -211,6 +277,12 @@ if [[ -z "$TABLE_ID" || -z "$GROUP_FIELD_ID" || -z "$METRIC_FIELD_ID" ]]; then
 fi
 
 echo "database_id=$DB_ID table_id=$TABLE_ID group_field_id=$GROUP_FIELD_ID metric_field_id=$METRIC_FIELD_ID time_field_id=${TIME_FIELD_ID:-<none>}"
+
+if [[ -n "$EXTERNAL_DEFAULT_ASSERTIONS" ]]; then
+  echo "[metadata] Validate default metadata assertions"
+  validate_default_metadata "$EXTERNAL_TABLE_NAME" "$EXTERNAL_DEFAULT_ASSERTIONS" "$TMP_DB_META"
+  echo
+fi
 
 echo "[5/6] Execute native query"
 NATIVE_SQL="select count(*) as row_count, sum(${EXTERNAL_METRIC_FIELD}) as total_metric from ${EXTERNAL_TABLE_NAME}"
