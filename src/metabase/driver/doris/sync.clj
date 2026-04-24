@@ -70,10 +70,11 @@
         included-schemas (parse-schema-filter-list include-schemas)
         excluded-schemas (into system-excluded-schemas
                                (parse-schema-filter-list exclude-schemas))]
-    (and schema-name
-         (not (contains? excluded-schemas schema-name))
-         (or (empty? included-schemas)
-             (contains? included-schemas schema-name)))))
+    (boolean
+     (and schema-name
+          (not (contains? excluded-schemas schema-name))
+          (or (empty? included-schemas)
+              (contains? included-schemas schema-name))))))
 
 (defn- nullable-state
   [nullable-value]
@@ -100,16 +101,23 @@
         nullable-val (or (get row "Null") (get row :Null))
         default-val  (or (get row "Default") (get row :Default))
         comment-val  (or (get row "Comment") (get row :Comment))
-        nullable?    (nullable-state nullable-val)]
-    {:name                 col-name
-     :database-type        col-type
-     :base-type            (doris.types/doris-type->base-type col-type)
-     :database-position    idx
-     :database-default     (normalize-default default-val)
-     :database-is-nullable nullable?
-     :database-required    (when (some? nullable?) (not nullable?))
-     :description          (normalize-comment comment-val)
-     :field-comment        (normalize-comment comment-val)}))
+        nullable?    (nullable-state nullable-val)
+        default-val  (normalize-default default-val)
+        comment-val  (normalize-comment comment-val)]
+    (cond-> {:name              col-name
+             :database-type     col-type
+             :base-type         (doris.types/doris-type->base-type col-type)
+             :database-position idx}
+      (some? default-val)
+      (assoc :database-default default-val)
+
+      (some? nullable?)
+      (assoc :database-is-nullable nullable?
+             :database-required (not nullable?))
+
+      (some? comment-val)
+      (assoc :description comment-val
+             :field-comment comment-val))))
 
 (defn- get-schemas
   [details catalog ^Connection conn]

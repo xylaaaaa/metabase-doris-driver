@@ -89,7 +89,7 @@
       (re-find #"(?i)unknown catalog|catalog.*not found" msg)
       "Catalog not found. Please check the catalog name."
 
-      (re-find #"(?i)table.*not exist|unknown table" msg)
+      (re-find #"(?i)table.*(?:not exist|doesn't exist|does not exist)|unknown table" msg)
       "Table not found. Please check that the table exists in the specified catalog and database."
 
       (re-find #"(?i)sslhandshake" msg)

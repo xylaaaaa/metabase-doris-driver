@@ -19,6 +19,7 @@
     [#"(?i)^text$"                 :type/Text]
     [#"(?i)^json$"                 :type/JSON]
     [#"(?i)^date$"                 :type/Date]
+    [#"(?i)^time(?:\(\d+\))?$"     :type/Time]
     [#"(?i)^datetime.*"            :type/DateTime]
     [#"(?i)^timestamp.*"           :type/DateTime]
     [#"(?i)^array.*"               :type/Array]

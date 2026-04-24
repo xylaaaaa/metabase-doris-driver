@@ -53,6 +53,9 @@
 (deftest date-type-mapping-test
   (testing "maps DATE to type/Date"
     (is (= :type/Date (doris.types/doris-type->base-type "DATE"))))
+  (testing "maps TIME to type/Time"
+    (is (= :type/Time (doris.types/doris-type->base-type "TIME")))
+    (is (= :type/Time (doris.types/doris-type->base-type "TIME(3)"))))
   (testing "maps DATETIME to type/DateTime"
     (is (= :type/DateTime (doris.types/doris-type->base-type "DATETIME")))
     (is (= :type/DateTime (doris.types/doris-type->base-type "DATETIMEV2")))
