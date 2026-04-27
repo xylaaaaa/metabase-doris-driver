@@ -1,17 +1,40 @@
 (ns metabase.driver.doris.query-processor
   (:require
    [clojure.string :as str]
+   [java-time.api :as t]
    [metabase.driver.common :as driver.common]
    [metabase.driver :as driver]
+   [metabase.driver-api.core :as driver-api]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
    [metabase.driver.sql-jdbc.execute.old-impl :as sql-jdbc.old]
    [metabase.driver.sql.query-processor :as sql.qp]
    [metabase.util.honey-sql-2 :as h2x]
    [metabase.util.log :as log])
   (:import
-   (java.sql Connection ResultSet)))
+   (java.sql Connection PreparedStatement ResultSet)
+   (java.time OffsetDateTime)))
 
 (defmethod sql.qp/quote-style :doris [_] :mysql)
+
+(def ^:dynamic *preserve-offset-datetime-parameters*
+  false)
+
+(defmethod sql.qp/->integer :doris
+  [driver value]
+  (h2x/maybe-cast (sql.qp/integer-dbtype driver) [:round value]))
+
+(defmethod sql-jdbc.execute/set-parameter [:doris OffsetDateTime]
+  [driver ^PreparedStatement prepared-statement ^Integer i value]
+  (if *preserve-offset-datetime-parameters*
+    (sql-jdbc.execute/set-parameter
+     driver
+     prepared-statement
+     i
+     (t/local-date-time (t/with-offset-same-instant value (t/zone-offset 0))))
+    (let [zone   (t/zone-id (driver-api/results-timezone-id))
+          offset (.. zone getRules (getOffset (t/instant value)))
+          value  (t/local-date-time (t/with-offset-same-instant value offset))]
+      (sql-jdbc.execute/set-parameter driver prepared-statement i value))))
 
 (defmethod sql.qp/unix-timestamp->honeysql [:doris :seconds]
   [_ _ expr]
@@ -19,7 +42,7 @@
 
 (defmethod sql.qp/unix-timestamp->honeysql [:doris :milliseconds]
   [_ _ expr]
-  [:cast [:from_unixtime [:/ expr 1000]] :datetime])
+  [:cast [:from_unixtime [:/ expr 1000.0]] [:raw "DATETIME(3)"]])
 
 (defmethod sql.qp/current-datetime-honeysql-form :doris
   [_]
@@ -36,8 +59,8 @@
 (defmethod sql.qp/date [:doris :minute-of-hour]  [_ _ expr] [:minute expr])
 (defmethod sql.qp/date [:doris :hour-of-day]     [_ _ expr] [:hour expr])
 (defmethod sql.qp/date [:doris :day-of-month]    [_ _ expr] [:day expr])
-(defmethod sql.qp/date [:doris :day-of-year]     [_ _ expr] [:dayofyear expr])
-(defmethod sql.qp/date [:doris :month-of-year]   [_ _ expr] [:month expr])
+(defmethod sql.qp/date [:doris :day-of-year]     [_ _ expr] [:cast [:date_format expr (h2x/literal "%j")] :int])
+(defmethod sql.qp/date [:doris :month-of-year]   [_ _ expr] [:cast [:date_format expr (h2x/literal "%m")] :int])
 (defmethod sql.qp/date [:doris :year-of-era]     [_ _ expr] [:year expr])
 (defmethod sql.qp/date [:doris :quarter-of-year] [_ _ expr] [:quarter expr])
 
@@ -101,7 +124,15 @@
 
 (defmethod sql.qp/cast-temporal-byte [:doris :Coercion/YYYYMMDDHHMMSSBytes->Temporal]
   [_ _ expr]
-  [:cast expr :datetime])
+  (throw (ex-info "Doris does not support coercing binary values to temporal types."
+                  {:expr expr
+                   :coercion :Coercion/YYYYMMDDHHMMSSBytes->Temporal})))
+
+(defmethod sql.qp/cast-temporal-byte [:doris :Coercion/ISO8601Bytes->Temporal]
+  [_ _ expr]
+  (throw (ex-info "Doris does not support coercing binary values to temporal types."
+                  {:expr expr
+                   :coercion :Coercion/ISO8601Bytes->Temporal})))
 
 (defmethod driver/db-start-of-week :doris [_]
   :sunday)

@@ -5,14 +5,27 @@
    [metabase.driver.doris.connection]
    [metabase.driver.doris.query-processor]
    [metabase.driver.doris.sync]
-   [metabase.driver.doris.types]))
+   [metabase.driver.doris.types]
+   [metabase.driver.sql-jdbc :as sql-jdbc]
+   [metabase.driver.sql.util :as sql.u]
+   [metabase.driver.sql.query-processor.like-escape-char-built-in :as like-escape-char-built-in]))
 
 (set! *warn-on-reflection* true)
 
-(driver/register! :doris :parent :sql-jdbc)
+(driver/register! :doris :parent #{:sql-jdbc ::like-escape-char-built-in/like-escape-char-built-in})
 
 (defmethod driver/display-name :doris [_]
   "Apache Doris")
+
+(defmethod driver/prettify-native-form :doris
+  [_ native-form]
+  (sql.u/format-sql-and-fix-params :mysql native-form))
+
+(defmethod sql-jdbc/impl-table-known-to-not-exist? :doris
+  [_ ^java.sql.SQLException e]
+  (boolean
+   (re-find #"(?i)(unknown table|table .* does(?:n't| not) exist)"
+            (or (.getMessage e) ""))))
 
 (doseq [[feature supported?] {:set-timezone                     true
                               :basic-aggregations               true

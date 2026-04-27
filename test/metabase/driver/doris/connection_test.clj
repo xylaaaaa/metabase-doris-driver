@@ -2,24 +2,31 @@
   (:require
    [clojure.test :refer :all]
    [metabase.driver :as driver]
-   [metabase.driver.doris.connection :as doris.conn]))
+   [metabase.driver.doris.connection :as doris.conn]
+   [metabase.driver.sql-jdbc.connection :as sql-jdbc.conn]
+   [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
+   [metabase.util.date-2 :as u.date])
+  (:import
+   (java.nio.charset StandardCharsets)
+   (java.sql ResultSet ResultSetMetaData SQLException)))
 
 (deftest connection-details->spec-test
   (testing "builds JDBC spec with default port"
-    (let [spec (doris.conn/connection-details->spec
+    (let [spec (sql-jdbc.conn/connection-details->spec
                 :doris
                 {:host "localhost"
                  :catalog "internal"
                  :dbname "test_db"
                  :user "root"
                  :password ""})]
-      (is (= "localhost" (:host spec)))
-      (is (= 9030 (:port spec)))
-      (is (= "internal.test_db" (:db spec)))
-      (is (= "root" (:user spec)))))
+      (is (= "org.mariadb.jdbc.Driver" (:classname spec)))
+      (is (= "mysql" (:subprotocol spec)))
+      (is (= "//localhost:9030/internal.test_db" (:subname spec)))
+      (is (= "root" (:user spec)))
+      (is (nil? (:sessionVariables spec)))))
 
   (testing "builds JDBC spec with custom port"
-    (let [spec (doris.conn/connection-details->spec
+    (let [spec (sql-jdbc.conn/connection-details->spec
                 :doris
                 {:host "doris-fe"
                  :port 9031
@@ -27,14 +34,12 @@
                  :dbname "tpch"
                  :user "admin"
                  :password "secret"})]
-      (is (= "doris-fe" (:host spec)))
-      (is (= 9031 (:port spec)))
-      (is (= "hive_catalog.tpch" (:db spec)))
+      (is (= "//doris-fe:9031/hive_catalog.tpch" (:subname spec)))
       (is (= "admin" (:user spec)))
       (is (= "secret" (:password spec)))))
 
   (testing "includes SSL mode when specified"
-    (let [spec (doris.conn/connection-details->spec
+    (let [spec (sql-jdbc.conn/connection-details->spec
                 :doris
                 {:host "localhost"
                  :catalog "internal"
@@ -43,10 +48,10 @@
                  :password ""
                  :ssl true
                  :ssl-mode "require"})]
-      (is (contains? (:sessionVariables spec) "sslMode"))))
+      (is (= "trust" (:sslMode spec)))))
 
   (testing "includes additional options"
-    (let [spec (doris.conn/connection-details->spec
+    (let [spec (sql-jdbc.conn/connection-details->spec
                 :doris
                 {:host "localhost"
                  :catalog "internal"
@@ -54,8 +59,8 @@
                  :user "root"
                  :password ""
                  :additional-options "useCompression=true&maxAllowedPacket=16777216"})]
-      (is (= "true" (get-in spec [:sessionVariables "useCompression"])))
-      (is (= "16777216" (get-in spec [:sessionVariables "maxAllowedPacket"]))))))
+      (is (= "true" (:useCompression spec)))
+      (is (= "16777216" (:maxAllowedPacket spec))))))
 
 (deftest jdbc-db-target-test
   (testing "defaults to internal.information_schema"
@@ -150,3 +155,25 @@
            (driver/humanize-connection-error-message
             :doris
             "Some unknown error")))))
+
+(deftest read-column-thunk-parses-raw-timestamp-bytes-test
+  (letfn [(reader-for [value]
+            (let [rs (proxy [ResultSet] []
+                       (getObject
+                         ([i] (throw (SQLException. (str "unsupported getObject(" i ")"))))
+                         ([i _klass] (throw (SQLException. (str "unsupported getObject(" i ", klass)")))))
+                       (getString [i] (throw (SQLException. (str "unsupported getString(" i ")"))))
+                       (getBytes [_i] (.getBytes value StandardCharsets/UTF_8)))
+                  rsmeta (proxy [ResultSetMetaData] []
+                           (getColumnType [_i] java.sql.Types/TIMESTAMP)
+                           (getColumnTypeName [_i] "DATETIME"))]
+              (sql-jdbc.execute/read-column-thunk :doris rs rsmeta 1)))]
+    (testing "parses timestamptz bytes with offset"
+      (is (= "2014-07-03T01:30Z"
+             (str ((reader-for "2014-07-03 01:30:00+00:00"))))))
+    (testing "normalizes offset timestamps to UTC"
+      (is (= "2019-11-01T07:23:18.331Z"
+             (str ((reader-for "2019-11-01 00:23:18.331-07:00"))))))
+    (testing "parses datetime bytes without offset"
+      (is (= (u.date/parse "2019-04-21T16:43:00.123")
+             ((reader-for "2019-04-21 16:43:00.123")))))))

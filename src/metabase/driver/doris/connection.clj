@@ -5,7 +5,11 @@
    [metabase.driver :as driver]
    [metabase.driver.sql-jdbc.connection :as sql-jdbc.conn]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
-   [metabase.util.log :as log]))
+   [metabase.util.date-2 :as u.date]
+   [metabase.util.log :as log])
+  (:import
+   (java.nio.charset StandardCharsets)
+   (java.sql ResultSet ResultSetMetaData Types)))
 
 (def default-host "localhost")
 (def default-port 9030)
@@ -71,6 +75,28 @@
    db-or-id-or-spec
    (assoc (or options {}) :session-timezone (or session-timezone "UTC"))
    f))
+
+(defn parse-doris-timestamp-bytes
+  [raw-bytes]
+  (when raw-bytes
+    (let [parsed (u.date/parse
+                  (str/replace-first (String. ^bytes raw-bytes StandardCharsets/UTF_8) " " "T"))]
+      (cond
+        (instance? java.time.OffsetDateTime parsed)
+        (u.date/with-time-zone-same-instant parsed (java.time.ZoneId/of "UTC"))
+
+        (instance? java.time.ZonedDateTime parsed)
+        (.toOffsetDateTime ^java.time.ZonedDateTime
+                           (u.date/with-time-zone-same-instant parsed (java.time.ZoneId/of "UTC")))
+
+        :else
+        parsed))))
+
+(defmethod sql-jdbc.execute/read-column-thunk [:doris Types/TIMESTAMP]
+  [_driver ^ResultSet rs ^ResultSetMetaData _rsmeta ^Integer i]
+  (fn read-doris-timestamp-thunk []
+    (some-> (.getBytes rs i)
+            parse-doris-timestamp-bytes)))
 
 (defmethod driver/can-connect? :doris
   [driver details]
