@@ -4,6 +4,7 @@
    [clojure.string :as str]
    [metabase.driver :as driver]
    [metabase.driver.sql-jdbc.connection :as sql-jdbc.conn]
+   [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
    [metabase.util.log :as log]))
 
 (def default-host "localhost")
@@ -51,11 +52,10 @@
     (merge
      {:classname                "org.mariadb.jdbc.Driver"
       :subprotocol              "mysql"
-      :subname                  (str "//" host ":" port "/" jdbc-db)
+     :subname                  (str "//" host ":" port "/" jdbc-db)
       :user                     user
       :password                 password
-      :sslMode                 (if ssl "trust" "disable")
-      :sessionVariables        "time_zone='UTC'"
+      :sslMode                  (if ssl "trust" "disable")
       :tinyInt1isBit            "false"
       :yearIsDateType           "false"
       :allowPublicKeyRetrieval  "true"
@@ -63,6 +63,14 @@
       :useUnicode               "true"
       :characterEncoding        "UTF-8"}
      (parse-additional-options additional-options))))
+
+(defmethod sql-jdbc.execute/do-with-connection-with-options :doris
+  [driver db-or-id-or-spec {:keys [session-timezone] :as options} f]
+  ((get-method sql-jdbc.execute/do-with-connection-with-options :sql-jdbc)
+   driver
+   db-or-id-or-spec
+   (assoc (or options {}) :session-timezone (or session-timezone "UTC"))
+   f))
 
 (defmethod driver/can-connect? :doris
   [driver details]
