@@ -54,7 +54,8 @@
       :subname                  (str "//" host ":" port "/" jdbc-db)
       :user                     user
       :password                 password
-      :sslMode                  (if ssl "trust" "disable")
+      :sslMode                 (if ssl "trust" "disable")
+      :sessionVariables        "time_zone='UTC'"
       :tinyInt1isBit            "false"
       :yearIsDateType           "false"
       :allowPublicKeyRetrieval  "true"
