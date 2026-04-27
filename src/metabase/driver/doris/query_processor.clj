@@ -70,15 +70,30 @@
                              [:dayofweek expr]
                              (driver.common/start-of-week-offset-for-day :sunday)))
 
+(defn- doris-local-date
+  [expr]
+  [:cast [:date_format expr (h2x/literal "%Y-%m-%d")] :date])
+
+(defn- doris-timestamptz-week
+  [driver expr]
+  (let [week-date [:date_add
+                   (doris-local-date expr)
+                   [:interval [:- 1 (doris-day-of-week driver expr)] :day]]]
+    [:cast
+     [:concat [:cast week-date :string] " 00:00:00"]
+     :timestamptz]))
+
 (defmethod sql.qp/date [:doris :day-of-week]
   [driver _ expr]
   (doris-day-of-week driver expr))
 
 (defmethod sql.qp/date [:doris :week]
   [driver _ expr]
-  [:date_add
-   (sql.qp/date driver :day expr)
-   [:interval [:- 1 (doris-day-of-week driver expr)] :day]])
+  (if (h2x/is-of-type? expr #"^timestamptz")
+    (doris-timestamptz-week driver expr)
+    [:date_add
+     (sql.qp/date driver :day expr)
+     [:interval [:- 1 (doris-day-of-week driver expr)] :day]]))
 
 (defmethod sql.qp/date [:doris :week-of-year]
   [driver unit expr]
