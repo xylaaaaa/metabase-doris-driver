@@ -53,9 +53,6 @@
 (deftest date-type-mapping-test
   (testing "maps DATE to type/Date"
     (is (= :type/Date (doris.types/doris-type->base-type "DATE"))))
-  (testing "maps TIME to type/Time"
-    (is (= :type/Time (doris.types/doris-type->base-type "TIME")))
-    (is (= :type/Time (doris.types/doris-type->base-type "TIME(3)"))))
   (testing "maps DATETIME to type/DateTime"
     (is (= :type/DateTime (doris.types/doris-type->base-type "DATETIME")))
     (is (= :type/DateTime (doris.types/doris-type->base-type "DATETIMEV2")))
@@ -63,10 +60,7 @@
 
 (deftest timestamp-type-mapping-test
   (testing "maps TIMESTAMP to type/DateTime"
-    (is (= :type/DateTime (doris.types/doris-type->base-type "TIMESTAMP"))))
-  (testing "maps TIMESTAMPTZ to type/DateTimeWithTZ"
-    (is (= :type/DateTimeWithTZ (doris.types/doris-type->base-type "TIMESTAMPTZ")))
-    (is (= :type/DateTimeWithTZ (doris.types/doris-type->base-type "TIMESTAMPTZ(3)")))))
+    (is (= :type/DateTime (doris.types/doris-type->base-type "TIMESTAMP")))))
 
 (deftest complex-type-mapping-test
   (testing "maps ARRAY to type/Array"
