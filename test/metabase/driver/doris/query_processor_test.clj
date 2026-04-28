@@ -5,7 +5,6 @@
    [metabase.driver.doris.query-processor :as doris.qp]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
    [metabase.driver.sql.query-processor :as sql.qp]
-   [metabase.query-processor.test-util :as qp.test-util]
    [metabase.test :as mt]
    [metabase.util.honey-sql-2 :as h2x])
   (:import
@@ -112,6 +111,12 @@
     (is (= [:date_add :field [:interval 3 :month]]
            (sql.qp/add-interval-honeysql-form :doris :field 3 :month)))))
 
+(deftest timezone-aware-add-interval-preserves-type-test
+  (let [expr    (h2x/with-database-type-info :field "timestamptz(3)")
+        shifted (sql.qp/add-interval-honeysql-form :doris expr -4 :hour)]
+    (is (= "timestamptz(3)"
+           (h2x/database-type shifted)))))
+
 (deftest datetime-diff-test
   (testing "calculates day difference with datediff"
     (is (= [:datediff :end :start]
@@ -122,6 +127,13 @@
   (testing "calculates week difference with timestampdiff"
     (is (= [:timestampdiff [:raw "WEEK"] (h2x/->date :start) (h2x/->date :end)]
            (sql.qp/datetime-diff :doris :week :start :end))))
+  (testing "calculates week difference directly for timestamptz expressions"
+    (let [x (h2x/with-type-info :start {:effective-type :type/DateTimeWithTZ})
+          y (h2x/with-type-info :end {:effective-type :type/DateTimeWithTZ})]
+      (is (= [:timestampdiff [:raw "WEEK"]
+              [:cast [:date_format x (h2x/literal "%Y-%m-%d")] :date]
+              [:cast [:date_format y (h2x/literal "%Y-%m-%d")] :date]]
+             (sql.qp/datetime-diff :doris :week x y)))))
   (testing "calculates month difference with timestampdiff on dates"
     (is (= [:timestampdiff [:raw "MONTH"] (h2x/->date :start) (h2x/->date :end)]
            (sql.qp/datetime-diff :doris :month :start :end))))
@@ -157,7 +169,7 @@
                       (reset! captured [i value nil]))
                      ([i value sql-type]
                       (reset! captured [i value sql-type]))))]
-    (qp.test-util/with-results-timezone-id "America/Los_Angeles"
+    (mt/with-results-timezone-id "America/Los_Angeles"
       (sql-jdbc.execute/set-parameter :doris ps 1 (OffsetDateTime/parse "2014-08-02T10:00:00Z")))
     (is (= [1 (LocalDateTime/parse "2014-08-02T03:00:00") Types/TIMESTAMP]
            @captured))))

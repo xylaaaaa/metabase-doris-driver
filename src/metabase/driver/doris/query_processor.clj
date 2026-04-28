@@ -8,6 +8,7 @@
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
    [metabase.driver.sql-jdbc.execute.old-impl :as sql-jdbc.old]
    [metabase.driver.sql.query-processor :as sql.qp]
+   [metabase.driver.sql.query-processor.util :as sql.qp.u]
    [metabase.util.honey-sql-2 :as h2x]
    [metabase.util.log :as log])
   (:import
@@ -18,6 +19,19 @@
 
 (def ^:dynamic *preserve-offset-datetime-parameters*
   false)
+
+(defmethod sql.qp/->honeysql [:doris :field]
+  [driver [_ field-id opts :as field-clause]]
+  (let [expr       ((get-method sql.qp/->honeysql [:sql :field]) driver field-clause)
+        field-type (or (:effective-type opts)
+                       (:base-type opts)
+                       (when (integer? field-id)
+                         (when-let [field-metadata (driver-api/field (driver-api/metadata-provider) field-id)]
+                           ((some-fn :effective-type :base-type) field-metadata))))]
+    (if (isa? field-type :type/DateTimeWithTZ)
+      (h2x/with-type-info expr (merge (or (h2x/type-info expr) {})
+                                      {:effective-type field-type}))
+      expr)))
 
 (defmethod sql.qp/->integer :doris
   [driver value]
@@ -48,6 +62,17 @@
   [_]
   :%now)
 
+(defn- preserve-type-info
+  [expr new-expr]
+  (if-let [type-info (h2x/type-info expr)]
+    (h2x/with-type-info new-expr type-info)
+    new-expr))
+
+(defn- timestamptz-expr?
+  [expr]
+  (or (h2x/is-of-type? expr #"^timestamptz")
+      (some-> expr h2x/effective-type (#(isa? % :type/DateTimeWithTZ)))))
+
 (defmethod sql.qp/date [:doris :default] [_ _ expr] expr)
 (defmethod sql.qp/date [:doris :minute]  [_ _ expr] [:date_trunc "minute" expr])
 (defmethod sql.qp/date [:doris :hour]    [_ _ expr] [:date_trunc "hour" expr])
@@ -74,6 +99,12 @@
   [expr]
   [:cast [:date_format expr (h2x/literal "%Y-%m-%d")] :date])
 
+(defn- date-only-expr
+  [expr]
+  (if (timestamptz-expr? expr)
+    (doris-local-date expr)
+    (h2x/->date expr)))
+
 (defn- doris-timestamptz-week
   [driver expr]
   (let [week-date [:date_add
@@ -95,6 +126,7 @@
      (sql.qp/date driver :day expr)
      [:interval [:- 1 (doris-day-of-week driver expr)] :day]]))
 
+
 (defmethod sql.qp/date [:doris :week-of-year]
   [driver unit expr]
   ((get-method sql.qp/date [:sql :week-of-year]) driver unit expr))
@@ -105,11 +137,13 @@
 
 (defmethod sql.qp/add-interval-honeysql-form :doris
   [_ hsql-form amount unit]
-  [:date_add hsql-form [:interval amount (keyword (name unit))]])
+  (preserve-type-info
+   hsql-form
+   [:date_add hsql-form [:interval amount (keyword (name unit))]]))
 
 (defn- timestampdiff-dates
   [unit x y]
-  [:timestampdiff [:raw (str/upper-case (name unit))] (h2x/->date x) (h2x/->date y)])
+  [:timestampdiff [:raw (str/upper-case (name unit))] (date-only-expr x) (date-only-expr y)])
 
 (doseq [unit [:hour :minute :second]]
   (defmethod sql.qp/datetime-diff [:doris unit]
