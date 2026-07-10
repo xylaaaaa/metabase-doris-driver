@@ -1,6 +1,6 @@
 info:
   name: Metabase Doris Driver
-  version: 0.1.0
+  version: 0.2.0-preview
   description: Allows Metabase to connect to Apache Doris through the FE MySQL protocol.
 
 driver:
@@ -20,7 +20,7 @@ driver:
       display-name: Catalog
       placeholder: internal
       required: false
-      helper-text: Doris catalog name. v1 is optimized for the internal catalog.
+      helper-text: Doris catalog name. Internal and validated external catalogs are supported.
     - name: dbname
       display-name: Database (optional)
       required: false

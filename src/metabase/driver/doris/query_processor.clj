@@ -9,6 +9,7 @@
    [metabase.driver.sql-jdbc.execute.old-impl :as sql-jdbc.old]
    [metabase.driver.sql.query-processor :as sql.qp]
    [metabase.driver.sql.query-processor.util :as sql.qp.u]
+   [metabase.driver.sql.util :as sql.u]
    [metabase.util.honey-sql-2 :as h2x]
    [metabase.util.log :as log])
   (:import
@@ -61,6 +62,44 @@
 (defmethod sql.qp/current-datetime-honeysql-form :doris
   [_]
   :%now)
+
+(defmethod sql.qp/->honeysql [:doris :percentile]
+  [driver [_ arg p]]
+  [:percentile_approx
+   (sql.qp/->honeysql driver arg)
+   (sql.qp/->honeysql driver p)])
+
+(defmethod sql.qp/->honeysql [:doris :median]
+  [driver [_ arg]]
+  (sql.qp/->honeysql driver [:percentile arg 0.5]))
+
+(defmethod sql.qp/->honeysql [:doris :regex-match-first]
+  [driver [_ arg pattern]]
+  [:regexp_extract
+   (sql.qp/->honeysql driver arg)
+   (sql.qp/->honeysql driver pattern)
+   [:inline 0]])
+
+(defmethod sql.qp/->honeysql [:doris :split-part]
+  [driver [_ text divider position]]
+  (let [text     (sql.qp/->honeysql driver text)
+        divider  (sql.qp/->honeysql driver divider)
+        position (sql.qp/->honeysql driver position)]
+    [:case
+     [:< position 1]
+     ""
+     :else
+     [:coalesce [:split_part text divider position] ""]]))
+
+(defmethod sql.qp/->honeysql [:doris :convert-timezone]
+  [driver [_ arg target-timezone source-timezone]]
+  (let [expr       (sql.qp/->honeysql driver arg)
+        timestamp? (or (sql.qp.u/field-with-tz? arg)
+                       (h2x/is-of-type? expr "timestamp"))]
+    (sql.u/validate-convert-timezone-args timestamp? target-timezone source-timezone)
+    (h2x/with-database-type-info
+     [:convert_tz expr (or source-timezone (driver-api/results-timezone-id)) target-timezone]
+     "datetime")))
 
 (defn- preserve-type-info
   [expr new-expr]

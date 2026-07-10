@@ -56,9 +56,10 @@
                               :describe-fields                  false
                               :describe-indexes                 false
                               :index-info                       false
-                              :percentile-aggregations          false
-                              :regex                            false
+                              :percentile-aggregations          true
+                              :regex                            true
                               :regex/lookaheads-and-lookbehinds false
+                              :split-part                       true
                               :nested-fields                    false
                               :nested-field-columns             false
                               :uploads                          false
@@ -70,5 +71,5 @@
                               :connection-impersonation-requires-role false
                               :database-replication             false
                               :database-routing                 false
-                              :convert-timezone                 false}]
+                              :convert-timezone                 true}]
   (defmethod driver/database-supports? [:doris feature] [_ _ _] supported?))

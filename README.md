@@ -21,35 +21,47 @@ under the License.
 
 [![CI](https://github.com/xylaaaaa/metabase-doris-driver/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/xylaaaaa/metabase-doris-driver/actions/workflows/ci.yml)
 
-This directory contains a standalone Apache Doris sample driver for Metabase community driver loading.
+This repository contains a standalone Apache Doris driver for Metabase community driver loading.
+
+Current release: **`0.2.0-preview`**
+
+Runtime requirements:
+
+1. Metabase `0.59.6.3` or newer
+2. Java 21
+3. An Apache Doris FE MySQL protocol endpoint
+
+Validated Metabase releases:
+
+1. `0.59.6.3`: plugin registration and application health startup
+2. `0.60.2.2`: plugin registration and application health startup
 
 ## Scope
 
-This is a v1, read-only driver sample with the following goals:
+This is a read-only driver with the following goals:
 
 1. Connect to Doris through the FE MySQL protocol endpoint.
 2. Sync catalogs, databases, tables, and fields using Doris-native SQL.
-3. Support basic Query Builder date and aggregation behavior.
+3. Support Query Builder date, aggregation, join, window, string extraction, percentile, and timezone behavior.
 4. Expose Doris complex types at the top-level metadata layer during schema sync.
 5. Preserve richer column metadata such as nullability, default values, and comments during sync.
 6. Avoid unstable capabilities such as field-filter template tags, table privilege sync, FK sync, and index sync.
 
 Current implementation should be understood as:
 
-1. `internal` catalog is the primary validated v1 target.
-2. `external catalog` basic sync SQL paths are already included in the driver skeleton and kept in v1 scope, but still
-   require environment-specific validation per catalog type.
+1. `internal` catalog is the primary validated target.
+2. External catalog read paths are validated for Hive/HMS, JDBC, Iceberg, and Paimon sample environments.
 3. complex types are visible in synced metadata as top-level field types, but are not unfolded into nested child fields.
 
 The connection model keeps an explicit `catalog` field so that the driver is built around Doris
 `catalog -> db -> table` semantics instead of classic single-level MySQL database semantics.
 
-## V1 Final Checklist
+## 0.2.0-preview Checklist
 
-### V1 supported
+### Supported
 
 1. Read-only Doris connectivity through the FE MySQL protocol.
-2. `internal` catalog metadata sync, native query execution, and basic Query Builder support.
+2. `internal` catalog metadata sync, native query execution, and Query Builder support.
 3. Validated external catalog read paths for:
    - Hive/HMS
    - JDBC
@@ -75,15 +87,22 @@ The connection model keeps an explicit `catalog` field so that the driver is bui
    - number
    - text
    - optional `[[ ... ]]` blocks
+8. Advanced Query Builder compatibility for:
+   - full outer joins
+   - percentile and median through Doris `PERCENTILE_APPROX`
+   - first regular-expression match through Doris `REGEXP_EXTRACT`
+   - string splitting through Doris `SPLIT_PART`
+   - window offset functions such as `LAG` and `LEAD`
+   - timezone conversion through Doris `CONVERT_TZ`
 
-### Still experimental inside v1
+### Still experimental
 
 1. External catalog behavior outside the validated sample paths in this repository.
 2. Metadata completeness differences across connector types other than the validated JDBC path.
 3. Query Builder behavior on external table layouts that do not behave like regular relational tables.
 4. Native template parameter behavior beyond basic variable substitution.
 
-### Explicitly out of v1 scope
+### Explicitly out of scope
 
 1. Parameterized SQL capability advertisement
 2. Field-filter template tags
@@ -129,8 +148,9 @@ resources into a source-only JAR, and let Metabase compile the namespaces at run
 
 Requirements:
 
-1. Java
+1. Java 21
 2. Clojure CLI
+3. Metabase `0.59.6.3` or newer for loading and running the plugin
 
 Build commands:
 
@@ -192,30 +212,35 @@ Current metadata completeness behavior:
 
 1. `internal` catalog metadata sync
 2. `internal` catalog native query execution
-3. `internal` catalog Query Builder basic aggregation, filter, and time bucketing
-4. top-level complex type display during sync
-5. one validated Hive/HMS-style external catalog path:
+3. `internal` catalog Query Builder aggregation, filter, time bucketing, joins, and window offsets
+4. advanced Query Builder expressions:
+   - approximate percentile and median
+   - regular-expression first match
+   - split part
+   - timezone conversion
+5. top-level complex type display during sync
+6. one validated Hive/HMS-style external catalog path:
    - `test_hive2_external_sql_block_rule.tpch1_parquet.orders`
    - native query
    - grouped MBQL query
    - temporal breakout
-6. one validated JDBC external catalog path:
+7. one validated JDBC external catalog path:
    - `doris_jdbc_catalog.regression_test_jdbc_catalog_p0.base`
    - native query
    - grouped MBQL query
    - temporal breakout
-7. one validated Iceberg external catalog path:
+8. one validated Iceberg external catalog path:
    - `codex_iceberg_check.format_v1.sample_parquet`
    - native query
    - grouped MBQL query
    - temporal breakout
-8. one validated Paimon external catalog path:
+9. one validated Paimon external catalog path:
    - `paimon_local_test.db1.all_table`
    - native query
    - grouped MBQL query
    - temporal breakout
-9. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
-10. basic native template parameter substitution for native SQL:
+10. field sync includes top-level nullability/default/comment metadata where Doris `SHOW FULL COLUMNS` provides it
+11. basic native template parameter substitution for native SQL:
     - numeric template tags
     - text template tags
     - optional `[[ ... ]]` blocks
@@ -264,7 +289,7 @@ specific external catalog backend and table type.
 
 ## Known Limitations
 
-This v1 sample intentionally keeps several capabilities disabled:
+The `0.2.0-preview` driver intentionally keeps several capabilities disabled:
 
 1. Parameterized SQL capability advertisement
 2. Field-filter template tags
@@ -274,6 +299,14 @@ This v1 sample intentionally keeps several capabilities disabled:
 6. Index metadata sync
 7. Upload / writeback actions
 8. Nested-field expansion
+
+Advanced Query Builder behavior has these deliberate constraints:
+
+1. Percentile and median use Doris `PERCENTILE_APPROX`, so results are approximate.
+2. Regular-expression extraction uses Doris `REGEXP_EXTRACT`; lookahead and lookbehind expressions are not advertised.
+3. Timezone conversion uses Doris `CONVERT_TZ`.
+4. An explicit source timezone is required when the source expression has no timezone metadata.
+5. Named timezone conversion requires the connected Doris environment to provide the corresponding timezone data.
 
 Complex type support in this sample is intentionally limited to **display / sync visibility**:
 

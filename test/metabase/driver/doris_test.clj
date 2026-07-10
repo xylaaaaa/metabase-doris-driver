@@ -67,7 +67,7 @@
   (is (= :type/* (doris.types/doris-type->base-type "BITMAP"))))
 
 (deftest capability-test
-  (testing "v1 supported capabilities are enabled"
+  (testing "supported capabilities are enabled"
     (is (true? (driver/database-supports? :doris :set-timezone nil)))
     (is (true? (driver/database-supports? :doris :basic-aggregations nil)))
     (is (true? (driver/database-supports? :doris :standard-deviation-aggregations nil)))
@@ -79,7 +79,7 @@
     (is (true? (driver/database-supports? :doris :schemas nil)))
     (is (true? (driver/database-supports? :doris :connection/multiple-databases nil))))
 
-  (testing "v1 unsupported capabilities are disabled"
+  (testing "unsupported capabilities are disabled"
     (is (true? (driver/database-supports? :doris :native-parameters nil)))
     (is (false? (driver/database-supports? :doris :parameterized-sql nil)))
     (is (false? (driver/database-supports? :doris :table-privileges nil)))
