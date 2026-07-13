@@ -11,6 +11,42 @@
    (java.sql PreparedStatement Types)
    (java.time LocalTime OffsetDateTime OffsetTime ZonedDateTime)))
 
+(def ^:private official-driver-capabilities
+  {:case-sensitivity-string-filter-options false
+   :connection-impersonation               false
+   :convert-timezone                       true
+   :datetime-diff                          true
+   :describe-fields                        true
+   :describe-fks                           false
+   :full-join                              true
+   :index-info                             false
+   :now                                    true
+   :percentile-aggregations                true
+   :persist-models                         false
+   :schemas                                true
+   :uploads                                false
+   :identifiers-with-spaces                true
+   :expressions/integer                    true
+   :expressions/float                      true
+   :expressions/date                       true
+   :expressions/text                       true
+   :split-part                             true
+   :window-functions/offset                true
+   :expression-literals                    true
+   :nested-field-columns                   false
+   :standard-deviation-aggregations        true
+   :regex/lookaheads-and-lookbehinds       false
+   :set-timezone                           true
+   :table-privileges                       false
+   :left-join                              true
+   :right-join                             true
+   :inner-join                             true})
+
+(deftest official-driver-capability-parity-test
+  (doseq [[feature expected] official-driver-capabilities]
+    (is (= expected (driver/database-supports? :doris feature nil))
+        (str "Unexpected Doris support for " feature))))
+
 (deftest advanced-query-builder-capabilities-test
   (testing "verified legacy Query Builder capabilities are advertised"
     (doseq [feature [:full-join

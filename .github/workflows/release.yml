@@ -4,27 +4,31 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  test:
+    name: Test with Metabase ${{ matrix.metabase-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        metabase-version:
+          - "0.59.6.3"
+          - "0.60.1"
+          - "0.60.2.2"
+    env:
+      METABASE_TEST_VERSION: ${{ matrix.metabase-version }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Resolve version
-        id: version
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          else
-            echo "VERSION=manual-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -35,7 +39,7 @@ jobs:
       - name: Install Clojure CLI
         uses: DeLaGuardo/setup-clojure@13.4
         with:
-          cli: latest
+          cli: 1.11.1.1435
 
       - name: Cache Clojure dependencies
         uses: actions/cache@v4
@@ -44,27 +48,99 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.clojure/.cpcache
-          key: ${{ runner.os }}-clojure-${{ hashFiles('**/deps.edn') }}
+            .cache/test-deps
+          key: ${{ runner.os }}-clojure-${{ matrix.metabase-version }}-${{ hashFiles('**/deps.edn', 'scripts/run-unit-tests.sh') }}
           restore-keys: |
-            ${{ runner.os }}-clojure-
+            ${{ runner.os }}-clojure-${{ matrix.metabase-version }}-
+
+      - name: Run unit tests
+        run: bash scripts/run-unit-tests.sh
+
+  build:
+    name: Build and publish release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches manifest version
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ "$tag" != v* ]]; then
+            echo "Release tag must start with 'v': $tag" >&2
+            exit 1
+          fi
+
+          tag_version="${tag#v}"
+          manifest_version="$(awk '$1 == "version:" {gsub(/["\047]/, "", $2); print $2; exit}' resources/metabase-plugin.yaml)"
+
+          if [[ -z "$manifest_version" ]]; then
+            echo "Could not read info.version from resources/metabase-plugin.yaml" >&2
+            exit 1
+          fi
+
+          if [[ "$tag_version" != "$manifest_version" ]]; then
+            echo "Tag version $tag_version does not match manifest version $manifest_version" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "artifact=doris.metabase-driver-$tag.jar" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: 1.11.1.1435
+
+      - name: Cache Clojure dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.clojure/.cpcache
+          key: ${{ runner.os }}-clojure-build-${{ hashFiles('**/deps.edn', 'build.clj') }}
+          restore-keys: |
+            ${{ runner.os }}-clojure-build-
 
       - name: Build source-only driver JAR
         run: clojure -T:build jar
 
-      - name: Rename artifact with version
+      - name: Prepare release artifact
         run: |
+          jar tf target/doris.metabase-driver.jar | grep -q 'metabase-plugin.yaml'
+          jar tf target/doris.metabase-driver.jar | grep -q 'metabase/driver/doris.clj'
+          jar tf target/doris.metabase-driver.jar | grep -q 'META-INF/LICENSE.txt'
+          jar tf target/doris.metabase-driver.jar | grep -q 'META-INF/NOTICE.txt'
           mv target/doris.metabase-driver.jar \
-             target/doris.metabase-driver-${{ steps.version.outputs.VERSION }}.jar
+             target/${{ steps.version.outputs.artifact }}
+          cd target
+          sha256sum "${{ steps.version.outputs.artifact }}" > \
+            "${{ steps.version.outputs.artifact }}.sha256"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/doris.metabase-driver-${{ steps.version.outputs.VERSION }}.jar
+          files: |
+            target/${{ steps.version.outputs.artifact }}
+            target/${{ steps.version.outputs.artifact }}.sha256
           generate_release_notes: true
           body: |
             ## Installation
 
-            1. Download `doris.metabase-driver-${{ steps.version.outputs.VERSION }}.jar`
+            1. Download `${{ steps.version.outputs.artifact }}`
             2. Copy it into your Metabase `plugins/` directory
             3. Restart Metabase
 

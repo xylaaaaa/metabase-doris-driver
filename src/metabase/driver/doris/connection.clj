@@ -52,11 +52,12 @@
   [_ {:keys [host port catalog dbname user password ssl additional-options]
       :or   {host default-host
              port default-port}}]
-  (let [jdbc-db (jdbc-db-target {:catalog catalog :dbname dbname})]
+  (let [port    (or port default-port)
+        jdbc-db (jdbc-db-target {:catalog catalog :dbname dbname})]
     (merge
      {:classname                "org.mariadb.jdbc.Driver"
       :subprotocol              "mysql"
-     :subname                  (str "//" host ":" port "/" jdbc-db)
+      :subname                  (str "//" host ":" port "/" jdbc-db)
       :user                     user
       :password                 password
       :sslMode                  (if ssl "trust" "disable")
@@ -65,7 +66,10 @@
       :allowPublicKeyRetrieval  "true"
       :zeroDateTimeBehavior     "convertToNull"
       :useUnicode               "true"
-      :characterEncoding        "UTF-8"}
+      :characterEncoding        "UTF-8"
+      :characterSetResults      "UTF-8"
+      :useCompression           "true"
+      :useLocalSessionState     "true"}
      (parse-additional-options additional-options))))
 
 (defmethod sql-jdbc.execute/do-with-connection-with-options :doris
@@ -75,6 +79,35 @@
    db-or-id-or-spec
    (assoc (or options {}) :session-timezone (or session-timezone "UTC"))
    f))
+
+(defn- resolve-database-timezone
+  [{:keys [global_tz system_tz]}]
+  (let [global-tz (some-> global_tz str str/trim)
+        system-tz (some-> system_tz str str/trim)]
+    (cond
+      (= "SYSTEM" (some-> global-tz str/upper-case))
+      (if-not (str/blank? system-tz)
+        system-tz
+        (throw (ex-info "Doris returned SYSTEM without a system timezone." {})))
+
+      (not (str/blank? global-tz))
+      global-tz
+
+      :else
+      (throw (ex-info "Doris did not return a database timezone." {})))))
+
+(defmethod driver/db-default-timezone :doris
+  [driver database]
+  (sql-jdbc.execute/do-with-connection-with-options
+   driver
+   database
+   nil
+   (fn [conn]
+     (-> (jdbc/query
+          {:connection conn}
+          ["SELECT @@global.time_zone AS global_tz, @@system_time_zone AS system_tz"])
+         first
+         resolve-database-timezone))))
 
 (defn parse-doris-timestamp-bytes
   [raw-bytes]
@@ -118,33 +151,35 @@
       (log/errorf "Doris connection failed: %s" (.getMessage e))
       false)))
 
+(defn- humanize-connection-message
+  [msg]
+  (cond
+    (re-find #"(?i)communications link failure" msg)
+    :cannot-connect-check-host-and-port
+
+    (re-find #"(?i)access denied" msg)
+    :username-or-password-incorrect
+
+    (re-find #"(?i)unknown database" msg)
+    :database-name-incorrect
+
+    (re-find #"(?i)unknown catalog|catalog.*not found" msg)
+    "Catalog not found. Please check the catalog name."
+
+    (re-find #"(?i)table.*(?:not exist|doesn't exist|does not exist)|unknown table" msg)
+    "Table not found. Please check that the table exists in the specified catalog and database."
+
+    (re-find #"(?i)sslhandshake" msg)
+    "SSL handshake failed. Check your SSL settings or try disabling SSL."
+
+    (re-find #"(?i)timeout|timed out" msg)
+    "Connection timeout. Check network connectivity and Doris FE availability."
+
+    (re-find #"(?i)no suitable driver" msg)
+    "JDBC driver not found. Please ensure the MariaDB JDBC driver is properly installed."))
+
 (defmethod driver/humanize-connection-error-message :doris
-  [_ message]
-  (let [msg (if (string? message) message (str message))]
-    (cond
-      (re-find #"(?i)communications link failure" msg)
-      "Unable to connect to Doris. Please check that the host and port are correct."
-
-      (re-find #"(?i)access denied" msg)
-      "Access denied. Please check your username and password."
-
-      (re-find #"(?i)unknown database" msg)
-      "Database not found. Please check the catalog and database names."
-
-      (re-find #"(?i)unknown catalog|catalog.*not found" msg)
-      "Catalog not found. Please check the catalog name."
-
-      (re-find #"(?i)table.*(?:not exist|doesn't exist|does not exist)|unknown table" msg)
-      "Table not found. Please check that the table exists in the specified catalog and database."
-
-      (re-find #"(?i)sslhandshake" msg)
-      "SSL handshake failed. Check your SSL settings or try disabling SSL."
-
-      (re-find #"(?i)timeout|timed out" msg)
-      "Connection timeout. Check network connectivity and Doris FE availability."
-
-      (re-find #"(?i)no suitable driver" msg)
-      "JDBC driver not found. Please ensure the MariaDB JDBC driver is properly installed."
-
-      :else
-      msg)))
+  [_ messages]
+  (let [messages (if (string? messages) [messages] messages)]
+    (or (some humanize-connection-message messages)
+        (first messages))))

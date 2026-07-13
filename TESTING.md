@@ -1,381 +1,151 @@
-# Metabase Doris Driver Testing Guide
+# Metabase Doris Driver Testing
 
-## Test Levels
+This guide separates repeatable driver tests from live environment validation. Commands are run from the repository
+root unless stated otherwise.
 
-### Level 1: Unit Tests (Local, No Database Required)
-**Location**: `test/metabase/driver/doris*_test.clj`
+## Prerequisites
 
-**Run**:
+- Java 21
+- Clojure CLI
+- `curl` and a SHA-256 utility (`sha256sum` or `shasum`)
+- A live Metabase and Doris deployment only for the integration section
+
+## Build Check
+
+Build the source-only community-driver JAR and inspect its required entries:
+
 ```bash
-clojure -X:test
-```
-
-**Coverage**:
-- [x] Connection string building
-- [x] SQL generation (SHOW DATABASES/TABLES/COLUMNS)
-- [x] Type mapping (30+ Doris types)
-- [x] Capability declarations
-- [x] Native parameter substitution
-- [x] Error message humanization
-- [x] Timezone handling
-
-**Status**: ✅ 195+ assertions passing
-
----
-
-### Level 2: Integration Tests (Requires Live Doris)
-**Location**: `test/metabase/test/data/doris.clj` (to be created)
-
-**Setup**:
-1. Start Doris FE + BE (docker-compose or local)
-2. Create test database: `metabase_test`
-3. Load test data (see `scripts/load-test-data.sql`)
-
-**Run**:
-```bash
-# Set environment
-export MB_DORIS_TEST_HOST=localhost
-export MB_DORIS_TEST_PORT=9030
-export MB_DORIS_TEST_USER=root
-export MB_DORIS_TEST_PASSWORD=
-
-# Run integration tests
-clojure -X:test :includes '[:integration]'
-```
-
-**Test Categories**:
-
-#### 2.1 Connection & Sync
-- [ ] Connect to internal catalog
-- [ ] Connect to external catalog (Hive/Iceberg)
-- [ ] Sync databases (with include/exclude filters)
-- [ ] Sync tables
-- [ ] Sync columns with metadata (nullable, default, comment)
-- [ ] Handle connection errors gracefully
-
-#### 2.2 Query Execution
-- [ ] Native SQL query
-- [ ] Native SQL with template parameters `{{param}}`
-- [ ] Native SQL with optional blocks `[[AND x = {{y}}]]`
-- [ ] Query Builder: simple SELECT
-- [ ] Query Builder: aggregation (COUNT, SUM, AVG, MIN, MAX)
-- [ ] Query Builder: GROUP BY
-- [ ] Query Builder: WHERE filters (=, !=, <, >, LIKE)
-- [ ] Query Builder: ORDER BY
-- [ ] Query Builder: LIMIT
-
-#### 2.3 Temporal Functions
-- [ ] Date truncation (minute, hour, day, week, month, quarter, year)
-- [ ] Date extraction (minute-of-hour, hour-of-day, day-of-month, day-of-week, week-of-year, month-of-year, quarter-of-year, year)
-- [ ] Date arithmetic (add/subtract intervals)
-- [ ] Datetime diff (day, hour, minute, second)
-- [ ] Unix timestamp conversion (seconds, milliseconds)
-- [ ] Timezone handling (UTC default)
-- [ ] Week start day (Sunday)
-
-#### 2.4 Type Handling
-- [ ] BOOLEAN
-- [ ] TINYINT, SMALLINT, INT, BIGINT
-- [ ] LARGEINT (128-bit, no truncation)
-- [ ] FLOAT, DOUBLE
-- [ ] DECIMAL(p,s)
-- [ ] VARCHAR, CHAR, STRING, TEXT
-- [ ] DATE
-- [ ] DATETIME, DATETIMEV2 (with microsecond precision)
-- [ ] TIMESTAMP
-- [ ] JSON (display as JSON type)
-- [ ] ARRAY (display as Array, not unfolded)
-- [ ] MAP (display as Dictionary, not unfolded)
-- [ ] STRUCT (display as type/*, not unfolded)
-- [ ] BITMAP, HLL, VARIANT (display as type/*)
-
-#### 2.5 Complex Scenarios
-- [ ] Large result sets (10K+ rows)
-- [ ] Wide tables (100+ columns)
-- [ ] NULL handling
-- [ ] Empty tables
-- [ ] Tables with Chinese column names
-- [ ] Query cancellation
-- [ ] Connection timeout
-- [ ] Query timeout
-
----
-
-### Level 3: Metabase Official Test Suite (Requires Metabase Source)
-**Location**: Metabase source `test/metabase/driver/sql_jdbc_test.clj`
-
-**Setup**:
-1. Clone Metabase source: `git clone https://github.com/metabase/metabase.git`
-2. Add Doris driver to `modules/drivers/`
-3. Configure test database in `test_config.edn`
-
-**Run**:
-```bash
-cd metabase
-clojure -X:dev:drivers:drivers-dev:test :only metabase.driver.sql-jdbc-test
-```
-
-**Official Test Suites**:
-
-#### 3.1 Driver Protocol Tests
-From `test/metabase/driver_test.clj`:
-- [ ] `describe-database`
-- [ ] `describe-table`
-- [ ] `describe-table-fks`
-- [ ] `details-fields`
-- [ ] `can-connect?`
-- [ ] `database-supports?` (all capabilities)
-
-#### 3.2 SQL JDBC Tests
-From `test/metabase/driver/sql_jdbc_test.clj`:
-- [ ] Connection pooling
-- [ ] Transaction handling
-- [ ] Prepared statement execution
-- [ ] Result set metadata
-- [ ] JDBC type mapping
-- [ ] Connection error handling
-
-#### 3.3 Query Processor Tests
-From `test/metabase/query_processor_test.clj`:
-- [ ] MBQL → SQL compilation
-- [ ] Aggregation queries
-- [ ] Breakout queries
-- [ ] Filter queries
-- [ ] Join queries (if supported)
-- [ ] Nested queries (if supported)
-- [ ] Field literals
-- [ ] Expression evaluation
-
-#### 3.4 Sync Tests
-From `test/metabase/sync/*_test.clj`:
-- [ ] Initial sync
-- [ ] Incremental sync
-- [ ] Schema changes detection
-- [ ] Field fingerprinting
-- [ ] Table row count estimation
-
-#### 3.5 Temporal Tests
-From `test/metabase/driver/sql/query_processor/datetime_test.clj`:
-- [ ] All date bucketing units
-- [ ] All date extraction units
-- [ ] Timezone conversions
-- [ ] Week semantics (start day, ISO week)
-- [ ] Datetime arithmetic edge cases
-
----
-
-## Quick Validation Checklist
-
-### Smoke Test (5 minutes)
-```bash
-# 1. Build driver
 clojure -T:build jar
-
-# 2. Copy to Metabase plugins
-cp target/doris.metabase-driver.jar $MB_PLUGINS_DIR/
-
-# 3. Start Metabase
-java -jar metabase.jar
-
-# 4. In Metabase UI:
-- Add Doris database
-- Run sync
-- Create a question with Query Builder
-- Run a native SQL query
+test -f target/doris.metabase-driver.jar
+jar tf target/doris.metabase-driver.jar | grep -q 'metabase-plugin.yaml'
+jar tf target/doris.metabase-driver.jar | grep -q 'metabase/driver/doris.clj'
+jar tf target/doris.metabase-driver.jar | grep -q 'META-INF/LICENSE.txt'
+jar tf target/doris.metabase-driver.jar | grep -q 'META-INF/NOTICE.txt'
 ```
 
-### Core Functionality Test (30 minutes)
-Use `scripts/validate-local.sh`:
+## Automated Driver Suite
+
+The supported test runner pins the Metabase download URL and SHA-256 digest for each validated version:
+
 ```bash
-./scripts/validate-local.sh
+bash scripts/run-unit-tests.sh
 ```
 
-Covers:
-- Connection validation
-- Metadata sync
-- Native query execution
-- Query Builder aggregation
-- Temporal bucketing
-- Type handling
+`0.60.1` is the default. Select another validated runtime with `METABASE_TEST_VERSION`:
 
-### External Catalog Test (1 hour)
-Use `scripts/validate-external-catalog.sh`:
 ```bash
-./scripts/validate-external-catalog.sh
+METABASE_TEST_VERSION=0.59.6.3 bash scripts/run-unit-tests.sh
+METABASE_TEST_VERSION=0.60.1 bash scripts/run-unit-tests.sh
+METABASE_TEST_VERSION=0.60.2.2 bash scripts/run-unit-tests.sh
 ```
 
-Requires:
-- Hive catalog configured
-- Sample Hive tables
+The v1.0.0 readiness matrix is:
 
-### Complex Metadata Test (1 hour)
-Use `scripts/validate-complex-metadata.sh`:
+| Metabase | Result |
+| --- | --- |
+| `0.59.6.3` | Passed |
+| `0.60.1` | Passed |
+| `0.60.2.2` | Passed |
+
+The suite covers:
+
+- exact parity for all 29 legacy Doris capability flags;
+- JDBC URL construction, defaults, optional database/catalog selection, and timezone discovery;
+- Doris-to-Metabase type mapping, aliases, parameterized integer types, defaults, and nullability;
+- internal batched/streaming field discovery and external `SHOW` fallback behavior;
+- schema filtering, identifiers containing spaces, and error isolation during metadata discovery;
+- Query Builder SQL for joins, numeric casts, date/time operations, `NOW(6)`, percentile/median, regex extraction,
+  split-part, timezone conversion, and window offsets;
+- native values, parameters, Doris error humanization, and unsupported capability boundaries.
+
+CI runs the same matrix in `.github/workflows/ci.yml`, builds the JAR, checks its contents, validates shell syntax, and
+parses the YAML manifests.
+
+## Live Integration
+
+The release target has been exercised end to end with Metabase `0.60.1` and a live Doris FE. That validation covered:
+
+- plugin loading and Doris connection validation;
+- full internal-catalog metadata sync;
+- native SQL execution;
+- Query Builder grouped aggregation;
+- approximate percentile generation/execution;
+- identifiers with spaces;
+- `NOW(6)` and temporal/timezone behavior;
+- integer and datetime metadata mapping.
+
+The other two Metabase versions in the matrix are verified by the automated suite, not by a claimed live integration
+run.
+
+### Reproduce The Internal Smoke Path
+
+Prepare a Doris database containing the table and fields expected by `scripts/validate-local.sh`, or override the
+variables shown below. Install the freshly built driver into a Metabase `0.60.1` plugin directory, start Metabase, and
+run:
+
 ```bash
-./scripts/validate-complex-metadata.sh
+export METABASE_URL=http://127.0.0.1:3001
+export METABASE_USERNAME=admin@example.com
+export METABASE_PASSWORD='your-metabase-password'
+export DORIS_HOST=127.0.0.1
+export DORIS_PORT=9030
+export DORIS_CATALOG=internal
+export DORIS_DB=metabase_driver_test
+export DORIS_USER=root
+export DORIS_PASSWORD=''
+export METABASE_DB_NAME='Local Doris V1 Test'
+export TARGET_TABLE_NAME=metabase_v1_orders
+export GROUP_FIELD_NAME=category
+export METRIC_FIELD_NAME=amount
+export TIME_FIELD_NAME=event_time
+
+bash scripts/validate-local.sh
 ```
 
-Covers:
-- Complex types (ARRAY, MAP, STRUCT, JSON)
-- Large tables
-- Schema filtering
-- Column metadata (nullable, default, comment)
+The helper validates health/login, database connection, synchronized table/field IDs, one native aggregate, and one
+grouped MBQL query. It requires a real Metabase application database and test data; it is not part of the hermetic unit
+suite.
 
----
+### External Catalog Smoke Path
 
-## Continuous Integration
+For an existing Metabase database entry configured against a Doris external catalog:
 
-### GitHub Actions (Automated)
-**Location**: `.github/workflows/test.yml`
-
-**Triggers**:
-- Every push to master
-- Every pull request
-- Nightly builds
-
-**Jobs**:
-1. Unit tests (always run)
-2. Integration tests (requires Doris docker)
-3. Build verification
-4. Release artifact generation
-
-### Self-Hosted Runner (For Integration Tests)
-**Location**: `.github/workflows/integration.yml`
-
-**Requirements**:
-- Self-hosted runner with Docker
-- Doris docker-compose setup
-- Test data pre-loaded
-
----
-
-## Test Data Setup
-
-### Minimal Test Dataset
-```sql
-CREATE DATABASE metabase_test;
-
-USE metabase_test;
-
-CREATE TABLE orders (
-  id INT,
-  customer_id INT,
-  product VARCHAR(100),
-  amount DECIMAL(10,2),
-  order_date DATE,
-  created_at DATETIME
-) DUPLICATE KEY(id)
-DISTRIBUTED BY HASH(id) BUCKETS 1;
-
-INSERT INTO orders VALUES
-  (1, 101, 'Laptop', 1200.00, '2026-01-15', '2026-01-15 10:30:00'),
-  (2, 102, 'Mouse', 25.50, '2026-01-16', '2026-01-16 14:20:00'),
-  (3, 101, 'Keyboard', 75.00, '2026-01-17', '2026-01-17 09:15:00'),
-  (4, 103, 'Monitor', 350.00, '2026-01-18', '2026-01-18 16:45:00');
-```
-
-### Full Test Dataset
-See `scripts/load-test-data.sql` for:
-- All Doris data types
-- NULL values
-- Edge cases (empty strings, zero dates, large numbers)
-- Chinese characters
-- Complex types (ARRAY, MAP, STRUCT, JSON)
-
----
-
-## Expected Test Results
-
-### Unit Tests
-- **Target**: 100% pass
-- **Current**: 195+ assertions, all passing
-
-### Integration Tests
-- **Target**: 95%+ pass (some edge cases may fail)
-- **Current**: Not yet run (requires Doris instance)
-
-### Official Metabase Tests
-- **Target**: 90%+ pass (some advanced features may not be supported)
-- **Current**: Not yet run (requires Metabase source integration)
-
----
-
-## Known Test Failures (Acceptable for v1)
-
-1. **FK/PK constraints**: Doris doesn't enforce these, tests expecting constraint metadata will fail
-2. **Index metadata**: `:index-info` disabled, related tests will skip
-3. **Nested field expansion**: `:nested-field-columns` disabled, JSON unfolding tests will skip
-4. **Table privileges**: `:table-privileges` disabled, permission tests will skip
-5. **Uploads/Actions**: Write operations disabled for v1
-
----
-
-## How to Add New Tests
-
-### 1. Unit Test
-```clojure
-;; test/metabase/driver/doris/my_feature_test.clj
-(ns metabase.driver.doris.my-feature-test
-  (:require [clojure.test :refer :all]
-            [metabase.driver.doris :as doris]))
-
-(deftest my-feature-test
-  (testing "feature works correctly"
-    (is (= expected-result (doris/my-function input)))))
-```
-
-### 2. Integration Test
-```clojure
-;; test/metabase/test/data/doris.clj
-(ns metabase.test.data.doris
-  (:require [metabase.test.data.interface :as tx]))
-
-(defmethod tx/dbdef->connection-details :doris [_ _ {:keys [database-name]}]
-  {:host "localhost"
-   :port 9030
-   :catalog "internal"
-   :dbname database-name
-   :user "root"
-   :password ""})
-```
-
-### 3. Add to CI
-```yaml
-# .github/workflows/test.yml
-- name: Run new test
-  run: clojure -X:test :includes '[:my-feature]'
-```
-
----
-
-## Debugging Failed Tests
-
-### 1. Enable Debug Logging
 ```bash
-export MB_LOG_LEVEL=DEBUG
-export MB_DB_LOGGING_LEVEL=DEBUG
+export METABASE_URL=http://127.0.0.1:3001
+export METABASE_USERNAME=admin@example.com
+export METABASE_PASSWORD='your-metabase-password'
+export METABASE_DB_NAME='Doris External Catalog Test'
+export DORIS_CATALOG=your_catalog
+export DORIS_DB=your_database
+export EXTERNAL_TABLE_NAME=your_table
+export EXTERNAL_GROUP_FIELD=your_group_field
+export EXTERNAL_METRIC_FIELD=your_numeric_field
+
+bash scripts/validate-external-catalog.sh
 ```
 
-### 2. Check Metabase Logs
-```bash
-tail -f metabase.log | grep -i doris
-```
+External catalog outcomes depend on the selected Doris connector and its metadata. The driver uses the same public
+metadata contract but deliberately falls back to catalog-qualified `SHOW` statements for this path.
 
-### 3. Check Doris FE Logs
-```bash
-tail -f fe/log/fe.log | grep -i metabase
-```
+## Metadata Caveat
 
-### 4. Inspect Generated SQL
-Add to driver code:
-```clojure
-(log/debugf "Generated SQL: %s" sql)
-```
+The driver parses auto-increment, generated-column, nullability, default, and comment metadata when Doris returns it.
+Current Doris deployments can leave `EXTRA` and `GENERATION_EXPRESSION` empty in
+`information_schema.columns`; auto/generated detection is therefore unavailable for those rows. A test should not
+assert those flags unless the source query actually returns them.
 
----
+## Release Gate
 
-## Resources
+Before publishing `v1.0.0`, require all of the following on the release commit:
 
-- [Metabase Driver Development Guide](https://www.metabase.com/docs/latest/developers-guide/drivers/start)
-- [Metabase Test Data Interface](https://github.com/metabase/metabase/blob/master/test/metabase/test/data/interface.clj)
-- [ClickHouse Driver Tests](https://github.com/metabase/metabase/tree/master/modules/drivers/clickhouse/test) (good reference)
-- [Doris SQL Reference](https://doris.apache.org/docs/sql-manual/sql-reference/)
+1. `clojure -T:build jar` succeeds and the JAR contains the manifest and driver namespaces.
+2. The automated suite passes on `0.59.6.3`, `0.60.1`, and `0.60.2.2`.
+3. Shell syntax and YAML validation pass.
+4. A clean Metabase `0.60.1` instance loads the exact release artifact.
+5. Internal metadata sync, native SQL, grouped Query Builder, percentile, spaced identifiers, and temporal behavior
+   pass against a live Doris FE.
+6. The plugin manifest version and Git tag both equal `1.0.0`/`v1.0.0`.
+7. Only after those checks should the GitHub release asset be considered downloadable.
+
+Do not broaden the version claim without adding the exact Metabase release to the automated matrix and rerunning the
+relevant live checks.

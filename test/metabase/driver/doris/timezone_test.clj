@@ -1,9 +1,51 @@
 (ns metabase.driver.doris.timezone-test
   (:require
+   [clojure.java.jdbc :as jdbc]
    [clojure.test :refer :all]
+   [metabase.driver :as driver]
+   [metabase.driver.doris]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute])
   (:import
    (java.sql Connection Statement)))
+
+(deftest db-default-timezone-test
+  (let [database {:id 1}
+        result   (atom {:global_tz "Asia/Shanghai"
+                        :system_tz "UTC"})]
+    (with-redefs [sql-jdbc.execute/do-with-connection-with-options
+                  (fn [actual-driver actual-database options f]
+                    (is (= :doris actual-driver))
+                    (is (= database actual-database))
+                    (is (nil? options))
+                    (f ::connection))
+                  jdbc/query
+                  (fn [spec query]
+                    (is (= {:connection ::connection} spec))
+                    (is (re-find #"@@global\.time_zone" (first query)))
+                    [@result])]
+      (testing "uses a named global timezone"
+        (is (= "Asia/Shanghai"
+               (driver/db-default-timezone :doris database))))
+      (testing "resolves SYSTEM to the server system timezone"
+        (reset! result {:global_tz "SYSTEM"
+                        :system_tz "America/Los_Angeles"})
+        (is (= "America/Los_Angeles"
+               (driver/db-default-timezone :doris database))))
+      (testing "rejects an incomplete SYSTEM response"
+        (reset! result {:global_tz "SYSTEM"
+                        :system_tz " "})
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"without a system timezone"
+             (driver/db-default-timezone :doris database))))))
+  (testing "propagates connection failures"
+    (with-redefs [sql-jdbc.execute/do-with-connection-with-options
+                  (fn [& _]
+                    (throw (ex-info "timezone lookup failed" {})))]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"timezone lookup failed"
+           (driver/db-default-timezone :doris {:id 1}))))))
 
 (deftest set-timezone-test
   (testing "set-timezone! executes SET time_zone statement"

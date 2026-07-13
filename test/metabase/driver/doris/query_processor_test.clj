@@ -23,6 +23,18 @@
       (is (= {:database-type "bigint"}
              (nth expr 2))))))
 
+(deftest float-cast-test
+  (let [expr (sql.qp/->float :doris :field)]
+    (is (= [:cast :field [:raw "double"]] (second expr)))
+    (is (h2x/is-of-type? expr :double))))
+
+(deftest identifiers-with-spaces-test
+  (is (= ["SELECT `display name` FROM `metabase v1 spaced`"]
+         (sql.qp/format-honeysql
+          :doris
+          {:select [(keyword "display name")]
+           :from [(keyword "metabase v1 spaced")]}))))
+
 (deftest unix-timestamp-conversion-test
   (testing "converts seconds to datetime"
     (is (= [:cast [:from_unixtime 1234567890] :datetime]
@@ -32,8 +44,10 @@
            (sql.qp/unix-timestamp->honeysql :doris :milliseconds 1234567890000)))))
 
 (deftest current-datetime-test
-  (testing "uses NOW() function"
-    (is (= :%now (sql.qp/current-datetime-honeysql-form :doris)))))
+  (testing "uses microsecond-precision NOW(6) with datetime type information"
+    (let [expr (sql.qp/current-datetime-honeysql-form :doris)]
+      (is (= [:now [:inline 6]] (second expr)))
+      (is (= "datetime" (h2x/database-type expr))))))
 
 (deftest date-truncation-test
   (testing "truncates to minute"

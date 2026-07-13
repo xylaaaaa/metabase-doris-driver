@@ -1,8 +1,13 @@
 (ns metabase.driver.doris.sync-test
   (:require
    [clojure.test :refer :all]
+   [metabase.driver :as driver]
+   [metabase.driver.doris]
    [metabase.driver.doris.connection :as doris.conn]
-   [metabase.driver.doris.sync :as doris.sync]))
+   [metabase.driver.doris.sync :as doris.sync]
+   [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute])
+  (:import
+   (java.sql Connection ResultSet Statement)))
 
 (deftest system-excluded-schemas-test
   (testing "excludes system schemas"
@@ -131,9 +136,33 @@
                  1)]
       (is (= "CURRENT_TIMESTAMP" (:database-default field)))
       (is (= false (:database-is-nullable field)))
-      (is (= true (:database-required field)))
+      (is (= false (:database-required field)))
+      (is (= false (:database-is-auto-increment field)))
+      (is (= false (:database-is-generated field)))
+      (is (= false (:pk? field)))
       (is (= "event timestamp" (:description field)))
       (is (= "event timestamp" (:field-comment field)))))
+  (testing "recognizes auto-increment and generated column metadata"
+    (let [auto-field (doris.sync/full-column-row->field
+                      {"Field" "id"
+                       "Type" "bigint"
+                       "Null" "NO"
+                       "Default" nil
+                       "Extra" "AUTO_INCREMENT"
+                       "Comment" ""}
+                      0)
+          generated-field (doris.sync/full-column-row->field
+                           {"Field" "total"
+                            "Type" "decimal(12,2)"
+                            "Null" "NO"
+                            "Default" nil
+                            "Extra" "STORED GENERATED"
+                            "Comment" ""}
+                           1)]
+      (is (= true (:database-is-auto-increment auto-field)))
+      (is (= false (:database-required auto-field)))
+      (is (= true (:database-is-generated generated-field)))
+      (is (= false (:database-required generated-field)))))
   (testing "keeps empty-string defaults and drops blank comments"
     (let [field (doris.sync/full-column-row->field
                  {"Field" "label"
@@ -147,6 +176,15 @@
       (is (= false (:database-required field)))
       (is (nil? (:description field)))
       (is (nil? (:field-comment field)))))
+  (testing "normalizes textual NULL defaults"
+    (let [field (doris.sync/full-column-row->field
+                 {"Field" "optional_label"
+                  "Type" "varchar(20)"
+                  "Null" "YES"
+                  "Default" "NULL"
+                  "Comment" nil}
+                 2)]
+      (is (nil? (:database-default field)))))
   (testing "uses tri-state nullability when metadata is unavailable"
     (let [field (doris.sync/full-column-row->field
                  {"Field" "mystery_col"
@@ -160,3 +198,219 @@
       (is (nil? (:database-default field)))
       (is (nil? (:description field)))
       (is (nil? (:field-comment field))))))
+
+(defn- fake-result-set
+  [rows]
+  (let [idx (atom -1)]
+    (proxy [ResultSet] []
+      (next [] (< (swap! idx inc) (count rows)))
+      (getString [column] (get (nth rows @idx) column))
+      (close [] nil))))
+
+(defn- fake-connection
+  [results queries]
+  (proxy [Connection] []
+    (createStatement []
+      (proxy [Statement] []
+        (executeQuery [sql]
+          (swap! queries conj sql)
+          (fake-result-set
+           (or (get results sql)
+               (throw (ex-info "Unexpected sync SQL" {:sql sql})))))
+        (close [] nil)))
+    (close [] nil)))
+
+(deftest describe-fields-test
+  (let [database    {:id 1
+                     :name "Doris"
+                     :engine :doris
+                     :details {:catalog "hive_catalog" :dbname "analytics"}}
+        queries     (atom [])
+        checkouts   (atom 0)
+        results     {"SHOW TABLES FROM `hive_catalog`.`analytics`"
+                     [{1 "events"} {1 "orders"}]
+
+                     "SHOW FULL COLUMNS FROM `hive_catalog`.`analytics`.`orders`"
+                     [{"Field" "id"
+                       "Type" "bigint"
+                       "Null" "NO"
+                       "Default" nil
+                       "Extra" "auto_increment"
+                       "Comment" "identifier"}
+                      {"Field" "amount"
+                       "Type" "decimal(12,2)"
+                       "Null" "NO"
+                       "Default" "0.00"
+                       "Extra" ""
+                       "Comment" "metric amount"}]}
+        conn        (fake-connection results queries)]
+    (with-redefs [sql-jdbc.execute/do-with-connection-with-options
+                  (fn [_driver _database _options f]
+                    (swap! checkouts inc)
+                    (f conn))]
+      (is (= [{:name "id"
+               :database-type "bigint"
+               :base-type :type/BigInteger
+               :database-position 0
+               :pk? false
+               :database-is-auto-increment true
+               :database-is-generated false
+               :database-is-nullable false
+               :database-required false
+               :description "identifier"
+               :field-comment "identifier"
+               :table-schema "analytics"
+               :table-name "orders"}
+              {:name "amount"
+               :database-type "decimal(12,2)"
+               :base-type :type/Decimal
+               :database-position 1
+               :pk? false
+               :database-is-auto-increment false
+               :database-is-generated false
+               :database-default "0.00"
+               :database-is-nullable false
+               :database-required false
+               :description "metric amount"
+               :field-comment "metric amount"
+               :table-schema "analytics"
+               :table-name "orders"}]
+             (vec (driver/describe-fields
+                   :doris
+                   database
+                   :schema-names ["analytics"]
+                   :table-names ["orders"]))))
+      (is (= 1 @checkouts))
+      (is (= ["SHOW TABLES FROM `hive_catalog`.`analytics`"
+              "SHOW FULL COLUMNS FROM `hive_catalog`.`analytics`.`orders`"]
+             @queries))
+      (is (= []
+             (vec (driver/describe-fields :doris database :schema-names [])))))))
+
+(deftest external-describe-fields-filters-schemas-before-listing-tables-test
+  (let [database {:id 1
+                  :name "Doris"
+                  :engine :doris
+                  :details {:catalog "hive_catalog"}}
+        queries  (atom [])
+        results  {"SHOW DATABASES FROM `hive_catalog`"
+                  [{1 "analytics"} {1 "archive"}]
+                  "SHOW TABLES FROM `hive_catalog`.`analytics`"
+                  [{1 "orders"}]
+                  "SHOW TABLES FROM `hive_catalog`.`archive`"
+                  []
+                  "SHOW FULL COLUMNS FROM `hive_catalog`.`analytics`.`orders`"
+                  [{"Field" "id"
+                    "Type" "int"
+                    "Null" "NO"
+                    "Default" nil
+                    "Extra" ""
+                    "Comment" ""}]}
+        conn     (fake-connection results queries)]
+    (with-redefs [sql-jdbc.execute/do-with-connection-with-options
+                  (fn [_driver _database _options f]
+                    (f conn))]
+      (is (= ["id"]
+             (mapv :name
+                   (driver/describe-fields
+                    :doris
+                    database
+                    :schema-names ["analytics"]
+                    :table-names ["orders"]))))
+      (is (= ["SHOW DATABASES FROM `hive_catalog`"
+              "SHOW TABLES FROM `hive_catalog`.`analytics`"
+              "SHOW FULL COLUMNS FROM `hive_catalog`.`analytics`.`orders`"]
+             @queries)))))
+
+(deftest external-describe-fields-isolates-table-errors-test
+  (let [database {:id 1
+                  :name "Doris"
+                  :engine :doris
+                  :details {:catalog "hive_catalog" :dbname "analytics"}}
+        queries  (atom [])
+        results  {"SHOW TABLES FROM `hive_catalog`.`analytics`"
+                  [{1 "broken_view"} {1 "orders"}]
+                  "SHOW FULL COLUMNS FROM `hive_catalog`.`analytics`.`orders`"
+                  [{"Field" "id"
+                    "Type" "int"
+                    "Null" "NO"
+                    "Default" nil
+                    "Extra" ""
+                    "Comment" ""}]}
+        conn     (fake-connection results queries)]
+    (with-redefs [sql-jdbc.execute/do-with-connection-with-options
+                  (fn [_driver _database _options f]
+                    (f conn))]
+      (is (= [{:table-schema "analytics" :table-name "orders" :name "id"}]
+             (mapv #(select-keys % [:table-schema :table-name :name])
+                   (driver/describe-fields :doris database))))
+      (is (= ["SHOW TABLES FROM `hive_catalog`.`analytics`"
+              "SHOW FULL COLUMNS FROM `hive_catalog`.`analytics`.`broken_view`"
+              "SHOW FULL COLUMNS FROM `hive_catalog`.`analytics`.`orders`"]
+             @queries)))))
+
+(deftest internal-describe-fields-batch-query-test
+  (let [database   {:id 1
+                    :name "Doris"
+                    :engine :doris
+                    :details {:catalog "internal" :dbname "analytics"}}
+        query-calls (atom [])
+        rows        [{:column_name "id"
+                      :ordinal_position 1
+                      :table_schema "analytics"
+                      :table_name "orders"
+                      :column_type "bigint"
+                      :is_nullable "NO"
+                      :column_default nil
+                      :extra "auto_increment"
+                      :generation_expression ""
+                      :column_comment "identifier"}
+                     {:column_name "computed_id"
+                      :ordinal_position 2
+                      :table_schema "analytics"
+                      :table_name "orders"
+                      :column_type "int(11)"
+                      :is_nullable "NO"
+                      :column_default nil
+                      :extra ""
+                      :generation_expression "abs(id)"
+                      :column_comment "computed"}]]
+    (with-redefs [sql-jdbc.execute/do-with-connection-with-options
+                  (fn [& _]
+                    (throw (ex-info "Internal field sync must use the reducible query path" {})))
+                  sql-jdbc.execute/reducible-query
+                  (fn [actual-database query]
+                    (swap! query-calls conj [actual-database query])
+                    rows)]
+      (let [fields (vec (driver/describe-fields
+                         :doris
+                         database
+                         :schema-names ["analytics"]
+                         :table-names ["orders"]))]
+        (is (= [{:name "id"
+                 :table-schema "analytics"
+                 :table-name "orders"
+                 :database-position 0
+                 :database-is-auto-increment true
+                 :database-is-generated false
+                 :database-required false}
+                {:name "computed_id"
+                 :table-schema "analytics"
+                 :table-name "orders"
+                 :database-position 1
+                 :database-is-auto-increment false
+                 :database-is-generated true
+                 :database-required false}]
+               (mapv #(select-keys % [:name
+                                      :table-schema
+                                      :table-name
+                                      :database-position
+                                      :database-is-auto-increment
+                                      :database-is-generated
+                                      :database-required])
+                     fields)))
+        (is (= 1 (count @query-calls)))
+        (is (= database (ffirst @query-calls)))))))
+
+(deftest describe-table-fks-test
+  (is (= #{} (driver/describe-table-fks :doris {:id 1} {:id 2}))))

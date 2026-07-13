@@ -101,7 +101,7 @@
 
 (defmethod sql.qp/current-datetime-honeysql-form :doris
   [_]
-  :%now)
+  (h2x/with-database-type-info [:now [:inline 6]] "datetime"))
 
 (defmethod sql.qp/->honeysql [:doris :percentile]
   [driver [_ arg p]]
@@ -268,10 +268,6 @@
 
 (defmethod driver/db-start-of-week :doris [_]
   :sunday)
-
-(defmethod driver/db-default-timezone :doris
-  [_driver _database]
-  "UTC")
 
 (defmethod sql-jdbc.old/set-timezone-sql :doris [_]
   "SET time_zone = %s")

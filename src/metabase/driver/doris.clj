@@ -6,6 +6,7 @@
    [metabase.driver.doris.query-processor]
    [metabase.driver.doris.sync]
    [metabase.driver.doris.types]
+   [metabase.driver.sql :as driver.sql]
    [metabase.driver.sql-jdbc :as sql-jdbc]
    [metabase.driver.sql.util :as sql.u]
    [metabase.driver.sql.query-processor.like-escape-char-built-in :as like-escape-char-built-in]))
@@ -20,6 +21,9 @@
 (defmethod driver/table-name-length-limit :doris [_]
   64)
 
+(defmethod driver.sql/default-schema :doris [_]
+  nil)
+
 (defmethod driver/prettify-native-form :doris
   [_ native-form]
   (sql.u/format-sql-and-fix-params :mysql native-form))
@@ -31,16 +35,27 @@
             (or (.getMessage e) ""))))
 
 (doseq [[feature supported?] {:set-timezone                     true
+                              :case-sensitivity-string-filter-options false
                               :basic-aggregations               true
                               :standard-deviation-aggregations  true
                               :expressions                      true
                               :expression-aggregations          true
                               :expression-literals              true
+                              :expressions/integer              true
+                              :expressions/float                true
+                              :expressions/date                 true
+                              :expressions/text                 true
                               :temporal-extract                 true
                               :date-arithmetics                 true
                               :now                              true
                               :datetime-diff                    true
                               :schemas                          true
+                              :identifiers-with-spaces          true
+                              :left-join                        true
+                              :right-join                       true
+                              :inner-join                       true
+                              :full-join                        true
+                              :window-functions/offset          true
                               :connection/multiple-databases    true
                               :jdbc/statements                  true
                               :metadata/table-existence-check   true
@@ -53,10 +68,11 @@
                               :native-temporal-units            false
                               :parameters/table-reference       false
                               :nested-queries                   false
+                              :persist-models                   false
                               :table-privileges                 false
                               :metadata/key-constraints         false
                               :describe-fks                     false
-                              :describe-fields                  false
+                              :describe-fields                  true
                               :describe-indexes                 false
                               :index-info                       false
                               :percentile-aggregations          true

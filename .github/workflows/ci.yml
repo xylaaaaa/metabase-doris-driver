@@ -58,6 +58,8 @@ jobs:
           test -f target/doris.metabase-driver.jar
           jar tf target/doris.metabase-driver.jar | grep -q 'metabase-plugin.yaml'
           jar tf target/doris.metabase-driver.jar | grep -q 'metabase/driver/doris.clj'
+          jar tf target/doris.metabase-driver.jar | grep -q 'META-INF/LICENSE.txt'
+          jar tf target/doris.metabase-driver.jar | grep -q 'META-INF/NOTICE.txt'
 
       - name: Run unit tests against Metabase ${{ matrix.metabase-version }}
         run: bash scripts/run-unit-tests.sh

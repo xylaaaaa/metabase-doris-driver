@@ -11,15 +11,22 @@
 (deftest integer-type-mapping-test
   (testing "maps TINYINT to type/Integer"
     (is (= :type/Integer (doris.types/doris-type->base-type "TINYINT")))
-    (is (= :type/Integer (doris.types/doris-type->base-type "tinyint"))))
+    (is (= :type/Integer (doris.types/doris-type->base-type "tinyint")))
+    (is (= :type/Integer (doris.types/doris-type->base-type "TINYINT(4)"))))
   (testing "maps SMALLINT to type/Integer"
-    (is (= :type/Integer (doris.types/doris-type->base-type "SMALLINT"))))
+    (is (= :type/Integer (doris.types/doris-type->base-type "SMALLINT")))
+    (is (= :type/Integer (doris.types/doris-type->base-type "SMALLINT(6)"))))
   (testing "maps INT to type/Integer"
-    (is (= :type/Integer (doris.types/doris-type->base-type "INT"))))
+    (is (= :type/Integer (doris.types/doris-type->base-type "INT")))
+    (is (= :type/Integer (doris.types/doris-type->base-type "INT(11)"))))
+  (testing "maps INTEGER to type/Integer"
+    (is (= :type/Integer (doris.types/doris-type->base-type "INTEGER"))))
   (testing "maps BIGINT to type/BigInteger"
-    (is (= :type/BigInteger (doris.types/doris-type->base-type "BIGINT"))))
+    (is (= :type/BigInteger (doris.types/doris-type->base-type "BIGINT")))
+    (is (= :type/BigInteger (doris.types/doris-type->base-type "BIGINT(20)"))))
   (testing "maps LARGEINT to type/BigInteger"
-    (is (= :type/BigInteger (doris.types/doris-type->base-type "LARGEINT")))))
+    (is (= :type/BigInteger (doris.types/doris-type->base-type "LARGEINT")))
+    (is (= :type/BigInteger (doris.types/doris-type->base-type "LARGEINT(40)")))))
 
 (deftest float-type-mapping-test
   (testing "maps FLOAT to type/Float"
@@ -48,11 +55,15 @@
 (deftest json-type-mapping-test
   (testing "maps JSON to type/JSON"
     (is (= :type/JSON (doris.types/doris-type->base-type "JSON")))
-    (is (= :type/JSON (doris.types/doris-type->base-type "json")))))
+    (is (= :type/JSON (doris.types/doris-type->base-type "json"))))
+  (testing "maps JSONB to type/JSON"
+    (is (= :type/JSON (doris.types/doris-type->base-type "JSONB")))))
 
 (deftest date-type-mapping-test
   (testing "maps DATE to type/Date"
     (is (= :type/Date (doris.types/doris-type->base-type "DATE"))))
+  (testing "maps DATEV2 to type/Date"
+    (is (= :type/Date (doris.types/doris-type->base-type "DATEV2"))))
   (testing "maps DATETIME to type/DateTime"
     (is (= :type/DateTime (doris.types/doris-type->base-type "DATETIME")))
     (is (= :type/DateTime (doris.types/doris-type->base-type "DATETIMEV2")))

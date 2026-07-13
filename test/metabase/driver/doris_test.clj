@@ -5,7 +5,8 @@
    [metabase.driver.doris]
    [metabase.driver.doris.connection :as doris.conn]
    [metabase.driver.doris.sync :as doris.sync]
-   [metabase.driver.doris.types :as doris.types]))
+   [metabase.driver.doris.types :as doris.types]
+   [metabase.driver.sql :as driver.sql]))
 
 (deftest jdbc-db-target-test
   (testing "defaults to internal information_schema"
@@ -94,6 +95,9 @@
 
 (deftest table-name-length-limit-test
   (is (= 64 (driver/table-name-length-limit :doris))))
+
+(deftest default-schema-test
+  (is (nil? (driver.sql/default-schema :doris))))
 
 (deftest native-parameter-substitution-test
   (testing "Doris native queries support basic template-tag substitution"

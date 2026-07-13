@@ -23,7 +23,10 @@
       (is (= "mysql" (:subprotocol spec)))
       (is (= "//localhost:9030/internal.test_db" (:subname spec)))
       (is (= "root" (:user spec)))
-      (is (nil? (:sessionVariables spec)))))
+      (is (nil? (:sessionVariables spec)))
+      (is (= "true" (:useCompression spec)))
+      (is (= "true" (:useLocalSessionState spec)))
+      (is (= "UTF-8" (:characterSetResults spec)))))
 
   (testing "builds JDBC spec with custom port"
     (let [spec (sql-jdbc.conn/connection-details->spec
@@ -37,6 +40,15 @@
       (is (= "//doris-fe:9031/hive_catalog.tpch" (:subname spec)))
       (is (= "admin" (:user spec)))
       (is (= "secret" (:password spec)))))
+
+  (testing "uses the default port when the submitted port is nil"
+    (let [spec (sql-jdbc.conn/connection-details->spec
+                :doris
+                {:host "localhost"
+                 :port nil
+                 :catalog "internal"
+                 :dbname "test_db"})]
+      (is (= "//localhost:9030/internal.test_db" (:subname spec)))))
 
   (testing "includes SSL mode when specified"
     (let [spec (sql-jdbc.conn/connection-details->spec
@@ -103,22 +115,29 @@
 
 (deftest humanize-connection-error-message-test
   (testing "humanizes communications link failure"
-    (is (= "Unable to connect to Doris. Please check that the host and port are correct."
+    (is (= :cannot-connect-check-host-and-port
            (driver/humanize-connection-error-message
             :doris
-            "Communications link failure: java.net.ConnectException: Connection refused"))))
+            ["Communications link failure: java.net.ConnectException: Connection refused"]))))
 
   (testing "humanizes access denied error"
-    (is (= "Access denied. Please check your username and password."
+    (is (= :username-or-password-incorrect
            (driver/humanize-connection-error-message
             :doris
-            "Access denied for user 'root'@'localhost' (using password: YES)"))))
+            ["Access denied for user 'root'@'localhost' (using password: YES)"]))))
+
+  (testing "humanizes an actionable cause later in the exception chain"
+    (is (= :username-or-password-incorrect
+           (driver/humanize-connection-error-message
+            :doris
+            ["Unable to connect"
+             "Access denied for user 'root'@'localhost' (using password: YES)"]))))
 
   (testing "humanizes unknown database error"
-    (is (= "Database not found. Please check the catalog and database names."
+    (is (= :database-name-incorrect
            (driver/humanize-connection-error-message
             :doris
-            "Unknown database 'nonexistent_db'"))))
+            ["Unknown database 'nonexistent_db'"]))))
 
   (testing "humanizes unknown catalog error"
     (is (= "Catalog not found. Please check the catalog name."
@@ -154,7 +173,7 @@
     (is (= "Some unknown error"
            (driver/humanize-connection-error-message
             :doris
-            "Some unknown error")))))
+            ["Some unknown error" "Outer wrapper"])))))
 
 (deftest read-column-thunk-parses-raw-timestamp-bytes-test
   (letfn [(reader-for [value]

@@ -1,6 +1,6 @@
 info:
   name: Metabase Doris Driver
-  version: 0.2.0-preview
+  version: "1.0.0"
   description: Allows Metabase to connect to Apache Doris through the FE MySQL protocol.
 
 driver:
