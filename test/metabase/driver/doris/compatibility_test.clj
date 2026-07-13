@@ -4,8 +4,12 @@
    [metabase.driver :as driver]
    [metabase.driver.doris]
    [metabase.driver.doris.query-processor]
+   [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
    [metabase.driver.sql.query-processor :as sql.qp]
-   [metabase.util.honey-sql-2 :as h2x]))
+   [metabase.util.honey-sql-2 :as h2x])
+  (:import
+   (java.sql PreparedStatement Types)
+   (java.time LocalTime OffsetDateTime OffsetTime ZonedDateTime)))
 
 (deftest advanced-query-builder-capabilities-test
   (testing "verified legacy Query Builder capabilities are advertised"
@@ -33,6 +37,41 @@
 (deftest regex-match-first-honeysql-test
   (is (= [:regexp_extract :field "([A-Z]+)" [:inline 0]]
          (sql.qp/->honeysql :doris [:regex-match-first :field "([A-Z]+)"]))))
+
+(deftest text-length-counts-characters-test
+  (is (= [:char_length :field]
+         (sql.qp/->honeysql :doris [:length :field]))))
+
+(deftest offset-temporal-values-use-doris-timezone-conversion-test
+  (is (= "CAST('10:00:00.123456' AS TIME(6))"
+         (sql.qp/inline-value
+          :doris
+          (LocalTime/parse "10:00:00.123456"))))
+  (is (= "CAST('10:00:00.123456' AS TIME(6))"
+         (sql.qp/inline-value
+          :doris
+          (OffsetTime/parse "18:00:00.123456+08:00"))))
+  (is (= "convert_tz('2026-04-20 18:00:00.123456', '+08:00', @@session.time_zone)"
+         (sql.qp/inline-value
+          :doris
+          (OffsetDateTime/parse "2026-04-20T18:00:00.123456+08:00"))))
+  (is (= "convert_tz('2026-04-20 18:00:00.123456', 'Asia/Shanghai', @@session.time_zone)"
+         (sql.qp/inline-value
+          :doris
+          (ZonedDateTime/parse "2026-04-20T18:00:00.123456+08:00[Asia/Shanghai]")))))
+
+(deftest offset-time-parameter-uses-utc-test
+  (let [captured (atom nil)
+        ps (proxy [PreparedStatement] []
+             (setObject
+               ([i value]
+                (reset! captured [i value nil]))
+               ([i value sql-type]
+                (reset! captured [i value sql-type]))))]
+    (sql-jdbc.execute/set-parameter
+     :doris ps 1 (OffsetTime/parse "18:00:00.123+08:00"))
+    (is (= [1 (LocalTime/parse "10:00:00.123") Types/TIME]
+           @captured))))
 
 (deftest split-part-honeysql-test
   (let [position [:inline 2]]

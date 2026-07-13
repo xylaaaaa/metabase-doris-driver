@@ -17,6 +17,9 @@
 (defmethod driver/display-name :doris [_]
   "Apache Doris")
 
+(defmethod driver/table-name-length-limit :doris [_]
+  64)
+
 (defmethod driver/prettify-native-form :doris
   [_ native-form]
   (sql.u/format-sql-and-fix-params :mysql native-form))

@@ -92,6 +92,9 @@
     (is (false? (driver/database-supports? :doris :uploads nil)))
     (is (false? (driver/database-supports? :doris :actions nil)))))
 
+(deftest table-name-length-limit-test
+  (is (= 64 (driver/table-name-length-limit :doris))))
+
 (deftest native-parameter-substitution-test
   (testing "Doris native queries support basic template-tag substitution"
     (binding [driver/*driver* :doris]

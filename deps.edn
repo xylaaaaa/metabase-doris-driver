@@ -5,6 +5,14 @@
   org.mariadb.jdbc/mariadb-java-client {:mvn/version "3.3.2"}}
 
  :aliases
- {:build
+ {:test
+  {:extra-paths ["test" ".cache/test-deps/metabase.jar"]
+   :override-deps {org.clojure/clojure {:mvn/version "1.12.3"}}
+   :extra-deps {io.github.cognitect-labs/test-runner
+                {:git/tag "v0.5.1"
+                 :git/sha "dfb30dd6605cb6c0efc275e1df1736f6e90d4d73"}}
+   :exec-fn cognitect.test-runner.api/test}
+
+  :build
   {:deps {io.github.clojure/tools.build {:mvn/version "0.10.5"}}
    :ns-default build}}}

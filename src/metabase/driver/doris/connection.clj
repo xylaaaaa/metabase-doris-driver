@@ -9,7 +9,7 @@
    [metabase.util.log :as log])
   (:import
    (java.nio.charset StandardCharsets)
-   (java.sql ResultSet ResultSetMetaData Types)))
+   (java.sql ResultSet ResultSetMetaData SQLException Types)))
 
 (def default-host "localhost")
 (def default-port 9030)
@@ -97,6 +97,16 @@
   (fn read-doris-timestamp-thunk []
     (some-> (.getBytes rs i)
             parse-doris-timestamp-bytes)))
+
+(defmethod sql-jdbc.execute/read-column-thunk [:doris Types/TIME]
+  [driver ^ResultSet rs ^ResultSetMetaData rsmeta ^Integer i]
+  (let [parent-thunk ((get-method sql-jdbc.execute/read-column-thunk [:sql-jdbc Types/TIME])
+                      driver rs rsmeta i)]
+    (fn read-doris-time-thunk []
+      (try
+        (parent-thunk)
+        (catch SQLException _
+          (.getString rs i))))))
 
 (defmethod driver/can-connect? :doris
   [driver details]

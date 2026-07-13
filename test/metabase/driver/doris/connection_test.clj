@@ -8,7 +8,7 @@
    [metabase.util.date-2 :as u.date])
   (:import
    (java.nio.charset StandardCharsets)
-   (java.sql ResultSet ResultSetMetaData SQLException)))
+   (java.sql ResultSet ResultSetMetaData SQLException Types)))
 
 (deftest connection-details->spec-test
   (testing "builds JDBC spec with default port"
@@ -177,3 +177,34 @@
     (testing "parses datetime bytes without offset"
       (is (= (u.date/parse "2019-04-21T16:43:00.123")
              ((reader-for "2019-04-21 16:43:00.123")))))))
+
+(deftest read-column-thunk-preserves-duration-time-test
+  (letfn [(read-time [value]
+            (let [rs (proxy [ResultSet] []
+                       (getObject
+                         ([i] (throw (SQLException. (str "unsupported getObject(" i ")"))))
+                         ([i _klass] (throw (SQLException. (str "unsupported getObject(" i ", klass)")))))
+                       (getTime [_i] (throw (SQLException. "unsupported getTime")))
+                       (getString [_i] value))
+                  rsmeta (proxy [ResultSetMetaData] []
+                           (getColumnType [_i] Types/TIME)
+                           (getColumnTypeName [_i] "TIME"))]
+              ((sql-jdbc.execute/read-column-thunk :doris rs rsmeta 1))))]
+    (is (= "-12:34:56" (read-time "-12:34:56")))
+    (is (= "25:01:02" (read-time "25:01:02")))))
+
+(deftest read-column-thunk-preserves-standard-time-test
+  (letfn [(read-time [value]
+            (let [rs (proxy [ResultSet] []
+                       (getObject
+                         ([_i] value)
+                         ([_i _klass] value))
+                       (getString [_i]
+                         (throw (SQLException. "unexpected string fallback"))))
+                  rsmeta (proxy [ResultSetMetaData] []
+                           (getColumnType [_i] Types/TIME)
+                           (getColumnTypeName [_i] "TIME"))]
+              ((sql-jdbc.execute/read-column-thunk :doris rs rsmeta 1))))]
+    (is (= (java.time.LocalTime/parse "12:34:56.123")
+           (read-time (java.time.LocalTime/parse "12:34:56.123"))))
+    (is (nil? (read-time nil)))))

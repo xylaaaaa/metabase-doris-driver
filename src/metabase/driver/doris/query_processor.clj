@@ -14,7 +14,7 @@
    [metabase.util.log :as log])
   (:import
    (java.sql Connection PreparedStatement ResultSet)
-   (java.time OffsetDateTime)))
+   (java.time LocalTime OffsetDateTime OffsetTime ZonedDateTime)))
 
 (defmethod sql.qp/quote-style :doris [_] :mysql)
 
@@ -51,6 +51,46 @@
           value  (t/local-date-time (t/with-offset-same-instant value offset))]
       (sql-jdbc.execute/set-parameter driver prepared-statement i value))))
 
+(defmethod sql-jdbc.execute/set-parameter [:doris OffsetTime]
+  [driver ^PreparedStatement prepared-statement ^Integer i value]
+  (sql-jdbc.execute/set-parameter
+   driver
+   prepared-statement
+   i
+   (t/local-time (t/with-offset-same-instant value (t/zone-offset 0)))))
+
+(defn- format-offset
+  [value]
+  (let [offset (t/format "ZZZZZ" (t/zone-offset value))]
+    (if (= offset "Z") "UTC" offset)))
+
+(defn- convert-timezone-inline
+  [value source-timezone]
+  (format "convert_tz('%s', '%s', @@session.time_zone)"
+          (t/format "yyyy-MM-dd HH:mm:ss.SSSSSS" value)
+          source-timezone))
+
+(defn- inline-local-time
+  [value]
+  (format "CAST('%s' AS TIME(6))" (t/format "HH:mm:ss.SSSSSS" value)))
+
+(defmethod sql.qp/inline-value [:doris LocalTime]
+  [_ value]
+  (inline-local-time value))
+
+(defmethod sql.qp/inline-value [:doris OffsetTime]
+  [_ value]
+  (inline-local-time
+   (t/local-time (t/with-offset-same-instant value (t/zone-offset 0)))))
+
+(defmethod sql.qp/inline-value [:doris OffsetDateTime]
+  [_ value]
+  (convert-timezone-inline value (format-offset value)))
+
+(defmethod sql.qp/inline-value [:doris ZonedDateTime]
+  [_ value]
+  (convert-timezone-inline value (str (t/zone-id value))))
+
 (defmethod sql.qp/unix-timestamp->honeysql [:doris :seconds]
   [_ _ expr]
   [:cast [:from_unixtime expr] :datetime])
@@ -79,6 +119,10 @@
    (sql.qp/->honeysql driver arg)
    (sql.qp/->honeysql driver pattern)
    [:inline 0]])
+
+(defmethod sql.qp/->honeysql [:doris :length]
+  [driver [_ arg]]
+  [:char_length (sql.qp/->honeysql driver arg)])
 
 (defmethod sql.qp/->honeysql [:doris :split-part]
   [driver [_ text divider position]]

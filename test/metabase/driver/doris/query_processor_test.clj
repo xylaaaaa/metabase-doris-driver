@@ -1,15 +1,15 @@
 (ns metabase.driver.doris.query-processor-test
   (:require
    [clojure.test :refer :all]
+   [metabase.driver-api.core :as driver-api]
    [metabase.driver.common :as driver.common]
    [metabase.driver.doris.query-processor :as doris.qp]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
    [metabase.driver.sql.query-processor :as sql.qp]
-   [metabase.test :as mt]
    [metabase.util.honey-sql-2 :as h2x])
   (:import
    (java.sql PreparedStatement Types)
-   (java.time LocalDateTime OffsetDateTime)))
+   (java.time LocalDateTime OffsetDateTime ZonedDateTime)))
 
 (deftest quote-style-test
   (testing "uses MySQL quoting style"
@@ -57,7 +57,7 @@
 
 (deftest week-truncation-test
   (testing "truncates week based on start-of-week setting"
-    (mt/with-temporary-setting-values [start-of-week :tuesday]
+    (binding [driver.common/*start-of-week* :tuesday]
       (is (= [:date_add
               [:date_trunc "day" :field]
               [:interval
@@ -88,13 +88,13 @@
     (is (= [:year :field]
            (sql.qp/date :doris :year-of-era :field))))
   (testing "extracts day of week"
-    (mt/with-temporary-setting-values [start-of-week :monday]
+    (binding [driver.common/*start-of-week* :monday]
       (is (= (sql.qp/adjust-day-of-week :doris
                                         [:dayofweek :field]
                                         (driver.common/start-of-week-offset-for-day :sunday))
              (sql.qp/date :doris :day-of-week :field)))))
   (testing "extracts week of year"
-    (mt/with-temporary-setting-values [start-of-week :tuesday]
+    (binding [driver.common/*start-of-week* :tuesday]
       (is (= ((get-method sql.qp/date [:sql :week-of-year]) :doris :week-of-year :field)
              (sql.qp/date :doris :week-of-year :field)))))
   (testing "extracts ISO week of year"
@@ -169,7 +169,24 @@
                       (reset! captured [i value nil]))
                      ([i value sql-type]
                       (reset! captured [i value sql-type]))))]
-    (mt/with-results-timezone-id "America/Los_Angeles"
+    (with-redefs [driver-api/results-timezone-id (constantly "America/Los_Angeles")]
       (sql-jdbc.execute/set-parameter :doris ps 1 (OffsetDateTime/parse "2014-08-02T10:00:00Z")))
     (is (= [1 (LocalDateTime/parse "2014-08-02T03:00:00") Types/TIMESTAMP]
+           @captured))))
+
+(deftest zoned-datetime-parameter-test
+  (let [captured (atom nil)
+        ps       (proxy [PreparedStatement] []
+                   (setObject
+                     ([i value]
+                      (reset! captured [i value nil]))
+                     ([i value sql-type]
+                      (reset! captured [i value sql-type]))))]
+    (with-redefs [driver-api/results-timezone-id (constantly "UTC")]
+      (sql-jdbc.execute/set-parameter
+       :doris
+       ps
+       1
+       (ZonedDateTime/parse "2014-08-02T12:00:00-07:00[America/Los_Angeles]")))
+    (is (= [1 (LocalDateTime/parse "2014-08-02T19:00:00") Types/TIMESTAMP]
            @captured))))

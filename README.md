@@ -165,6 +165,22 @@ Output:
 target/doris.metabase-driver.jar
 ```
 
+## Test
+
+Run the unit suite against the default Metabase `0.60.1` runtime:
+
+```bash
+bash scripts/run-unit-tests.sh
+```
+
+The script caches the official Metabase JAR in the ignored `.cache/test-deps/` directory, verifies its SHA-256
+checksum, and then runs `clojure -X:test`. CI runs the same suite against every release listed in the validated
+Metabase matrix above. To select one locally, set `METABASE_TEST_VERSION`, for example:
+
+```bash
+METABASE_TEST_VERSION=0.59.6.3 bash scripts/run-unit-tests.sh
+```
+
 ## Install
 
 Copy the generated JAR into the Metabase `plugins/` directory and restart Metabase.
