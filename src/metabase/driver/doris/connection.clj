@@ -14,6 +14,7 @@
 (def default-port 9030)
 (def default-catalog "internal")
 (def fallback-db "information_schema")
+(def ^:private invalid-credentials-message "The username or password is incorrect.")
 
 (defn normalize-catalog
   "Normalize catalog name, defaulting to 'internal' if blank or nil."
@@ -151,7 +152,7 @@
     :cannot-connect-check-host-and-port
 
     (re-find #"(?i)access denied" msg)
-    :username-or-password-incorrect
+    invalid-credentials-message
 
     (re-find #"(?i)unknown database" msg)
     :database-name-incorrect

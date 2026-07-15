@@ -130,11 +130,8 @@
                       (catch clojure.lang.ExceptionInfo e
                         e))]
       (is (instance? clojure.lang.ExceptionInfo exception))
-      (is (= "Looks like the Username or Password is incorrect."
-             (ex-message exception)))
-      (is (= {:user "check your username"
-              :password "check your password"}
-             (:errors (ex-data exception)))))))
+      (is (= "The username or password is incorrect."
+             (ex-message exception))))))
 
 (deftest humanize-connection-error-message-test
   (testing "humanizes communications link failure"
@@ -144,13 +141,13 @@
             ["Communications link failure: java.net.ConnectException: Connection refused"]))))
 
   (testing "humanizes access denied error"
-    (is (= :username-or-password-incorrect
+    (is (= "The username or password is incorrect."
            (driver/humanize-connection-error-message
             :doris
             ["Access denied for user 'root'@'localhost' (using password: YES)"]))))
 
   (testing "humanizes an actionable cause later in the exception chain"
-    (is (= :username-or-password-incorrect
+    (is (= "The username or password is incorrect."
            (driver/humanize-connection-error-message
             :doris
             ["Unable to connect"
