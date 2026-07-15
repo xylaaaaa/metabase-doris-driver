@@ -5,6 +5,7 @@
    [metabase.driver.doris.connection :as doris.conn]
    [metabase.driver.sql-jdbc.connection :as sql-jdbc.conn]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
+   [metabase.driver.util :as driver.u]
    [metabase.util.date-2 :as u.date])
   (:import
    (java.nio.charset StandardCharsets)
@@ -112,6 +113,28 @@
 
   (testing "handles nil"
     (is (= {} (doris.conn/parse-additional-options nil)))))
+
+(deftest connection-validation-humanizes-authentication-errors-test
+  (with-redefs [sql-jdbc.conn/do-with-connection-spec-for-testing-connection
+                (fn [_driver _details _f]
+                  (throw (SQLException.
+                          "Access denied for user 'analyst'@'localhost' (using password: YES)")))]
+    (let [exception (try
+                      (driver.u/can-connect-with-details?
+                       :doris
+                       {:host "localhost"
+                        :port 9030
+                        :user "analyst"
+                        :password "wrong-password"}
+                       :throw-exceptions)
+                      (catch clojure.lang.ExceptionInfo e
+                        e))]
+      (is (instance? clojure.lang.ExceptionInfo exception))
+      (is (= "Looks like the Username or Password is incorrect."
+             (ex-message exception)))
+      (is (= {:user "check your username"
+              :password "check your password"}
+             (:errors (ex-data exception)))))))
 
 (deftest humanize-connection-error-message-test
   (testing "humanizes communications link failure"

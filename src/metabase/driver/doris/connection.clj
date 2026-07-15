@@ -5,8 +5,7 @@
    [metabase.driver :as driver]
    [metabase.driver.sql-jdbc.connection :as sql-jdbc.conn]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
-   [metabase.util.date-2 :as u.date]
-   [metabase.util.log :as log])
+   [metabase.util.date-2 :as u.date])
   (:import
    (java.nio.charset StandardCharsets)
    (java.sql ResultSet ResultSetMetaData SQLException Types)))
@@ -143,13 +142,7 @@
 
 (defmethod driver/can-connect? :doris
   [driver details]
-  (try
-    (sql-jdbc.conn/with-connection-spec-for-testing-connection [spec [driver details]]
-      (jdbc/query spec ["SELECT 1"])
-      true)
-    (catch Exception e
-      (log/errorf "Doris connection failed: %s" (.getMessage e))
-      false)))
+  (sql-jdbc.conn/can-connect? driver details))
 
 (defn- humanize-connection-message
   [msg]
