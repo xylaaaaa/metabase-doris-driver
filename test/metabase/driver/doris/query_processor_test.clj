@@ -1,15 +1,109 @@
 (ns metabase.driver.doris.query-processor-test
   (:require
    [clojure.test :refer :all]
+   [metabase.driver :as driver]
    [metabase.driver-api.core :as driver-api]
    [metabase.driver.common :as driver.common]
    [metabase.driver.doris.query-processor :as doris.qp]
    [metabase.driver.sql-jdbc.execute :as sql-jdbc.execute]
    [metabase.driver.sql.query-processor :as sql.qp]
+   [metabase.query-processor.middleware.catch-exceptions :as catch-exceptions]
    [metabase.util.honey-sql-2 :as h2x])
   (:import
-   (java.sql PreparedStatement Types)
+   (clojure.lang ExceptionInfo)
+   (java.nio ByteBuffer)
+   (java.sql PreparedStatement SQLException Types)
    (java.time LocalDateTime OffsetDateTime ZonedDateTime)))
+
+(deftest parameter-formatting-test
+  (is (= (str "\n\nParameters:\n"
+              "1: \"A\"\n"
+              "2: NULL\n"
+              "3: 42\n"
+              "4: 2026-07-16T10:15:30\n"
+              "5: <binary 3 bytes>\n"
+              "6: <binary 2 bytes>\n"
+              "7: <java.lang.Object>")
+         (#'doris.qp/format-parameters
+          ["A"
+           nil
+           42
+           (LocalDateTime/parse "2026-07-16T10:15:30")
+           (byte-array [1 2 3])
+           (ByteBuffer/wrap (byte-array [4 5]))
+           (Object.)]))))
+
+(deftest query-error-includes-sql-test
+  (let [query          {:native {:query  (str "SELECT *\n"
+                                                "FROM warehouses\n"
+                                                "WHERE provider = ?")
+                                 :params ["A"]}}
+        original-error (SQLException. "Doris parser error" "HY000" 2)
+        jdbc-error     (doto (SQLException. "JDBC wrapper error" "08000" 0)
+                         (.initCause original-error))
+        error-data     {:type   :invalid-query
+                        :sql    ["-- Metabase:: userID: 1 queryHash: internal-hash"
+                                 "SELECT *"
+                                 "FROM warehouses"
+                                 "WHERE provider = ?"]
+                        :params ["A"]}
+        query-error    (ex-info "Error executing query: Doris parser error"
+                                error-data
+                                jdbc-error)
+        thrown         (with-redefs [sql-jdbc.execute/execute-reducible-query
+                                     (fn [& _]
+                                       (throw query-error))]
+                         (try
+                           (driver/execute-reducible-query :doris query nil identity)
+                           (catch ExceptionInfo error
+                             error)))
+        response       (catch-exceptions/exception-response thrown)
+        visible-error  (ex-cause thrown)]
+    (testing "the user-visible JDBC error includes the generated SQL"
+      (is (= (str "Doris parser error\n\n"
+                  "SQL query:\n"
+                  "SELECT *\n"
+                  "FROM warehouses\n"
+                  "WHERE provider = ?\n\n"
+                  "Parameters:\n"
+                  "1: \"A\"")
+             (:error response)))
+      (is (= "HY000" (:state response)))
+      (is (= :invalid-query (:error_type response))))
+    (testing "JDBC diagnostics and the original exception are preserved"
+      (is (instance? SQLException visible-error))
+      (is (= "HY000" (.getSQLState ^SQLException visible-error)))
+      (is (= 2 (.getErrorCode ^SQLException visible-error)))
+      (is (identical? original-error
+                      (.getNextException ^SQLException visible-error)))
+      (is (= [jdbc-error]
+             (vec (.getSuppressed ^SQLException visible-error)))))
+    (testing "bound parameter values are listed separately from the SQL"
+      (is (re-find #"WHERE provider = \?" (:error response)))
+      (is (re-find #"1: \"A\"" (:error response)))
+      (is (not (re-find #"internal-hash" (:error response))))
+      (is (= error-data (ex-data thrown))))))
+
+(deftest unrelated-query-errors-are-unchanged-test
+  (let [query {:native {:query "SELECT 1"}}]
+    (doseq [query-error [(ex-info "Unexpected query error"
+                                  {:type :invalid-query}
+                                  (RuntimeException. "not a JDBC error"))
+                         (ex-info "Query canceled"
+                                  {:type :invalid-query
+                                   :query/query-canceled? true}
+                                  (SQLException. "canceled"))
+                         (ex-info "Connection error"
+                                  {:type :connection-error}
+                                  (SQLException. "connection failed"))]]
+      (let [thrown (with-redefs [sql-jdbc.execute/execute-reducible-query
+                                 (fn [& _]
+                                   (throw query-error))]
+                     (try
+                       (driver/execute-reducible-query :doris query nil identity)
+                       (catch ExceptionInfo error
+                         error)))]
+        (is (identical? query-error thrown))))))
 
 (deftest quote-style-test
   (testing "uses MySQL quoting style"

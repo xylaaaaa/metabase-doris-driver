@@ -13,13 +13,80 @@
    [metabase.util.honey-sql-2 :as h2x]
    [metabase.util.log :as log])
   (:import
-   (java.sql Connection PreparedStatement ResultSet)
-   (java.time LocalTime OffsetDateTime OffsetTime ZonedDateTime)))
+   (clojure.lang ExceptionInfo)
+   (java.nio ByteBuffer)
+   (java.sql Connection PreparedStatement ResultSet SQLException)
+   (java.time LocalTime OffsetDateTime OffsetTime ZonedDateTime)
+   (java.time.temporal TemporalAccessor)
+   (java.util Date UUID)))
 
 (defmethod sql.qp/quote-style :doris [_] :mysql)
 
 (def ^:dynamic *preserve-offset-datetime-parameters*
   false)
+
+(defn- innermost-sql-exception
+  [error]
+  (loop [cause error
+         found nil]
+    (if cause
+      (recur (ex-cause cause)
+             (if (instance? SQLException cause) cause found))
+      found)))
+
+(def ^:private byte-array-class
+  (class (byte-array 0)))
+
+(defn- format-parameter
+  [value]
+  (cond
+    (nil? value)                       "NULL"
+    (or (string? value) (char? value)) (pr-str value)
+    (or (number? value) (boolean? value)) (str value)
+    (instance? TemporalAccessor value) (str value)
+    (instance? Date value)             (str value)
+    (instance? UUID value)             (str value)
+    (instance? byte-array-class value) (format "<binary %d bytes>" (alength ^bytes value))
+    (instance? ByteBuffer value)        (format "<binary %d bytes>" (.remaining ^ByteBuffer value))
+    :else                               (format "<%s>" (.getName (class value)))))
+
+(defn- format-parameters
+  [params]
+  (when (seq params)
+    (str "\n\nParameters:\n"
+         (str/join "\n"
+                   (map-indexed (fn [index value]
+                                  (format "%d: %s" (inc index) (format-parameter value)))
+                                params)))))
+
+(defn- ^SQLException sql-exception-with-query
+  [^SQLException error ^Throwable original-cause sql params]
+  (doto (SQLException. (str (ex-message error)
+                            "\n\nSQL query:\n"
+                            sql
+                            (format-parameters params))
+                       (.getSQLState error)
+                       (.getErrorCode error))
+    (.setNextException error)
+    (.addSuppressed original-cause)))
+
+(defmethod driver/execute-reducible-query :doris
+  [driver query context respond]
+  (try
+    (sql-jdbc.execute/execute-reducible-query driver query context respond)
+    (catch ExceptionInfo error
+      (let [error-data    (ex-data error)
+            sql-exception (innermost-sql-exception error)]
+        (if (and (= :invalid-query (:type error-data))
+                 (not (:query/query-canceled? error-data))
+                 sql-exception)
+          (throw (ex-info (ex-message error)
+                          error-data
+                          (sql-exception-with-query sql-exception
+                                                    (ex-cause error)
+                                                    (get-in query [:native :query])
+                                                    (:params error-data))))
+          (throw error))))))
 
 (defmethod sql.qp/->honeysql [:doris :field]
   [driver [_ field-id opts :as field-clause]]
