@@ -13,12 +13,11 @@
    [metabase.util.honey-sql-2 :as h2x]
    [metabase.util.log :as log])
   (:import
-   (clojure.lang ExceptionInfo)
+   (clojure.lang ExceptionInfo Reflector)
    (java.nio.charset StandardCharsets)
    (java.sql Connection Date PreparedStatement ResultSet SQLException Time Timestamp)
    (java.time LocalDate LocalDateTime LocalTime OffsetDateTime OffsetTime ZonedDateTime)
-   (java.util UUID)
-   (org.mariadb.jdbc.util ClientParser)))
+   (java.util UUID)))
 
 (defmethod sql.qp/quote-style :doris [_] :mysql)
 
@@ -162,42 +161,83 @@
                       {:length new-length})))
     (.append result fragment)))
 
+(defn- split-sql-at-byte-positions
+  [^String sql positions]
+  (let [sql-bytes (.getBytes sql StandardCharsets/UTF_8)]
+    (loop [positions (seq positions)
+           parts     []
+           start     0]
+      (if-let [position (first positions)]
+        (recur (next positions)
+               (conj parts (String. sql-bytes start (- position start) StandardCharsets/UTF_8))
+               (inc position))
+        (conj parts
+              (String. sql-bytes start (- (alength sql-bytes) start) StandardCharsets/UTF_8))))))
+
+(defn- connector-j-major-version
+  []
+  ;; Metabase currently bundles Connector/J 2.x, while the standalone driver dependency is 3.x.
+  ;; Dispatch from the JDBC driver that actually owns the prepared statement semantics at runtime.
+  (.getMajorVersion
+   ^java.sql.Driver
+   (Reflector/invokeConstructor
+    (Class/forName "org.mariadb.jdbc.Driver")
+    (object-array 0))))
+
+(defn- connector-j-2-parameter-parts
+  [^String sql no-backslash-escapes?]
+  (let [parsed (Reflector/invokeStaticMethod
+                (Class/forName "org.mariadb.jdbc.internal.util.dao.ClientPrepareResult")
+                "parameterParts"
+                (object-array [sql no-backslash-escapes?]))]
+    (mapv #(String. ^bytes % StandardCharsets/UTF_8)
+          (Reflector/invokeInstanceMethod parsed "getQueryParts" (object-array 0)))))
+
+(defn- connector-j-3-parameter-parts
+  [^String sql no-backslash-escapes?]
+  (let [parsed (Reflector/invokeStaticMethod
+                (Class/forName "org.mariadb.jdbc.util.ClientParser")
+                "parameterParts"
+                (object-array [sql no-backslash-escapes?]))]
+    (split-sql-at-byte-positions
+     sql
+     (Reflector/invokeInstanceMethod parsed "getParamPositions" (object-array 0)))))
+
+(defn- jdbc-parameter-parts
+  [^String sql no-backslash-escapes?]
+  (let [major-version (connector-j-major-version)]
+    (case major-version
+      2 (connector-j-2-parameter-parts sql no-backslash-escapes?)
+      3 (connector-j-3-parameter-parts sql no-backslash-escapes?)
+      (throw (ex-info "Unsupported MariaDB Connector/J major version."
+                      {:major-version major-version})))))
+
 (defn- inline-parameters-for-display
   [^String sql params]
   (when (> (.length sql) max-display-sql-length)
     (throw (ex-info "SQL query is too large to display safely."
                     {:length (.length sql)})))
-  ;; Reuse Connector/J's parser so quoted and commented question marks match JDBC exactly.
-  ;; ClientParser reports UTF-8 byte offsets, not Java character indexes.
-  (let [params                        (vec params)
-        parameter-positions           (vec (.getParamPositions (ClientParser/parameterParts sql false)))
-        no-backslash-escape-positions (vec (.getParamPositions (ClientParser/parameterParts sql true)))
-        parameter-count               (count params)
-        placeholder-count             (count parameter-positions)]
-    (when-not (= parameter-positions no-backslash-escape-positions)
-      (throw (ex-info "SQL placeholder positions depend on the session backslash-escape mode."
+  (let [params                      (vec params)
+        parameter-parts             (jdbc-parameter-parts sql false)
+        no-backslash-escape-parts   (jdbc-parameter-parts sql true)
+        parameter-count             (count params)
+        placeholder-count           (dec (count parameter-parts))]
+    (when-not (= parameter-parts no-backslash-escape-parts)
+      (throw (ex-info "SQL parameter parsing depends on the session backslash-escape mode."
                       {})))
     (when-not (= parameter-count placeholder-count)
       (throw (ex-info "SQL parameter count does not match placeholder count."
                       {:parameter-count   parameter-count
                        :placeholder-count placeholder-count})))
-    (let [sql-bytes (.getBytes sql StandardCharsets/UTF_8)
-          result    (StringBuilder. (.length sql))]
-      (loop [positions parameter-positions
-             values    params
-             start     0]
-        (if-let [position (first positions)]
+    (let [result (StringBuilder. (.length sql))]
+      (loop [parts  parameter-parts
+             values params]
+        (append-display-fragment! result (first parts))
+        (if (seq values)
           (do
-            (append-display-fragment!
-             result
-             (String. sql-bytes start (- position start) StandardCharsets/UTF_8))
             (append-display-fragment! result (sql-literal-for-display (first values)))
-            (recur (next positions) (next values) (inc position)))
-          (do
-            (append-display-fragment!
-             result
-             (String. sql-bytes start (- (alength sql-bytes) start) StandardCharsets/UTF_8))
-            (.toString result)))))))
+            (recur (next parts) (next values)))
+          (.toString result))))))
 
 (defn- expanded-sql-for-error
   [sql params]

@@ -100,7 +100,10 @@
 
 (deftest inline-parameters-uses-jdbc-comment-rules-test
   (is (= "SELECT value--?"
-         (#'doris.qp/inline-parameters-for-display "SELECT value--?" []))))
+         (#'doris.qp/inline-parameters-for-display "SELECT value--?" [])))
+  (testing "uses the exact placeholder boundaries from the bundled JDBC parser"
+    (is (= "/*/'BOUND'*/#\r?"
+           (#'doris.qp/inline-parameters-for-display "/*/?*/#\r?" ["BOUND"])))))
 
 (deftest inline-parameters-rejects-count-mismatches-test
   (is (thrown-with-msg? ExceptionInfo
