@@ -1,6 +1,7 @@
 (ns metabase.driver.doris.query-processor-test
   (:require
    [clojure.test :refer :all]
+   [clojure.string :as str]
    [metabase.driver :as driver]
    [metabase.driver-api.core :as driver-api]
    [metabase.driver.common :as driver.common]
@@ -11,27 +12,124 @@
    [metabase.util.honey-sql-2 :as h2x])
   (:import
    (clojure.lang ExceptionInfo)
-   (java.nio ByteBuffer)
-   (java.sql PreparedStatement SQLException Types)
-   (java.time LocalDateTime OffsetDateTime ZonedDateTime)))
+   (java.math BigInteger)
+   (java.sql Date PreparedStatement SQLException Time Timestamp Types)
+   (java.time Instant LocalDate LocalDateTime LocalTime OffsetDateTime OffsetTime ZonedDateTime)
+   (java.util UUID)))
 
-(deftest parameter-formatting-test
-  (is (= (str "\n\nParameters:\n"
-              "1: \"A\"\n"
-              "2: NULL\n"
-              "3: 42\n"
-              "4: 2026-07-16T10:15:30\n"
-              "5: <binary 3 bytes>\n"
-              "6: <binary 2 bytes>\n"
-              "7: <java.lang.Object>")
-         (#'doris.qp/format-parameters
-          ["A"
-           nil
-           42
-           (LocalDateTime/parse "2026-07-16T10:15:30")
-           (byte-array [1 2 3])
-           (ByteBuffer/wrap (byte-array [4 5]))
-           (Object.)]))))
+(deftest sql-literal-for-display-test
+  (are [value expected] (= expected (#'doris.qp/sql-literal-for-display value))
+    "O'Reilly"                                  "'O''Reilly'"
+    nil                                          "NULL"
+    42                                           "42"
+    true                                         "TRUE"
+    false                                        "FALSE"
+    (UUID/fromString "123e4567-e89b-12d3-a456-426614174000")
+    "'123e4567-e89b-12d3-a456-426614174000'"
+    (byte-array [0 1 127 -1])                    "X'00017FFF'")
+  (is (thrown-with-msg? ExceptionInfo
+                        #"Unsupported or non-finite SQL number"
+                        (#'doris.qp/sql-literal-for-display Double/NaN)))
+  (is (thrown-with-msg? ExceptionInfo
+                        #"Unsupported or non-finite SQL number"
+                        (#'doris.qp/sql-literal-for-display 1/2)))
+  (is (thrown-with-msg? ExceptionInfo
+                        #"session-dependent escaping"
+                        (#'doris.qp/sql-literal-for-display "path\\file")))
+  (is (thrown-with-msg? ExceptionInfo
+                        #"session-dependent escaping"
+                        (#'doris.qp/sql-literal-for-display "first\nsecond")))
+  (is (thrown-with-msg? ExceptionInfo
+                        #"Unsupported SQL parameter type"
+                        (#'doris.qp/sql-literal-for-display (Object.)))))
+
+(deftest temporal-sql-literal-for-display-test
+  (are [value expected] (= expected (#'doris.qp/sql-literal-for-display value))
+    (LocalDate/parse "2026-07-16")                          "'2026-07-16'"
+    (LocalDateTime/parse "2026-07-16T10:15:30")             "'2026-07-16 10:15:30.000000'"
+    (LocalDateTime/parse "2026-07-16T10:15:30.123456789")   "'2026-07-16 10:15:30.123456'"
+    (LocalTime/parse "10:15:30.987654321")                  "'10:15:30.987654'"
+    (Date/valueOf "2026-07-16")                             "'2026-07-16'"
+    (Time/valueOf "10:15:30")                               "'10:15:30.000000'"
+    (Timestamp/valueOf "2026-07-16 10:15:30.123456789")    "'2026-07-16 10:15:30.123456'")
+  (with-redefs [driver-api/results-timezone-id (constantly "America/Los_Angeles")]
+    (is (= "'2014-08-02 03:00:00.000000'"
+           (#'doris.qp/sql-literal-for-display
+            (OffsetDateTime/parse "2014-08-02T10:00:00Z"))))
+    (is (= "'2014-08-02 12:00:00.000000'"
+           (#'doris.qp/sql-literal-for-display
+            (ZonedDateTime/parse "2014-08-02T12:00:00-07:00[America/Los_Angeles]")))))
+  (is (= "'03:00:00.000000'"
+         (#'doris.qp/sql-literal-for-display (OffsetTime/parse "10:00:00+07:00"))))
+  (is (thrown-with-msg? ExceptionInfo
+                        #"Unsupported SQL parameter type"
+                        (#'doris.qp/sql-literal-for-display (Instant/parse "2026-07-16T10:15:30Z"))))
+  (is (thrown-with-msg? ExceptionInfo
+                        #"Unsupported SQL parameter type"
+                        (#'doris.qp/sql-literal-for-display (java.util.Date.)))))
+
+(deftest inline-parameters-for-display-test
+  (let [sql (str "SELECT '?' AS single_quoted, \"?\" AS double_quoted, `?` AS identifier,\n"
+                 "       category = ?, label = ? /* ? */, value = ? -- ?\n"
+                 "  AND enabled = ? # ?\n"
+                 "  AND untouched = '// ?' // ?\n")]
+    (is (= (str "SELECT '?' AS single_quoted, \"?\" AS double_quoted, `?` AS identifier,\n"
+                "       category = 'A', label = 'O''Reilly' /* ? */, value = NULL -- ?\n"
+                "  AND enabled = TRUE # ?\n"
+                "  AND untouched = '// ?' // ?\n")
+           (#'doris.qp/inline-parameters-for-display sql ["A" "O'Reilly" nil true]))))
+  (is (= "SELECT 名称 = '中文值', label = 'Alpha'"
+         (#'doris.qp/inline-parameters-for-display
+          "SELECT 名称 = ?, label = ?"
+          ["中文值" "Alpha"]))))
+
+(deftest inline-parameters-handles-escaped-quotes-test
+  (is (= (str "SELECT 'it''s ?' AS doubled_single, \"a\"\"?\" AS doubled_double,\n"
+              "       `a``?` AS doubled_backtick, value = 'actual'")
+         (#'doris.qp/inline-parameters-for-display
+          (str "SELECT 'it''s ?' AS doubled_single, \"a\"\"?\" AS doubled_double,\n"
+               "       `a``?` AS doubled_backtick, value = ?")
+          ["actual"]))))
+
+(deftest inline-parameters-rejects-ambiguous-backslash-mode-test
+  (is (thrown-with-msg? ExceptionInfo
+                        #"backslash-escape mode"
+                        (#'doris.qp/inline-parameters-for-display
+                         "SELECT 'escaped\\'?' AS text, value = ?"
+                         ["actual"]))))
+
+(deftest inline-parameters-uses-jdbc-comment-rules-test
+  (is (= "SELECT value--?"
+         (#'doris.qp/inline-parameters-for-display "SELECT value--?" []))))
+
+(deftest inline-parameters-rejects-count-mismatches-test
+  (is (thrown-with-msg? ExceptionInfo
+                        #"parameter count does not match"
+                        (#'doris.qp/inline-parameters-for-display "SELECT ?" [])))
+  (is (thrown-with-msg? ExceptionInfo
+                        #"parameter count does not match"
+                        (#'doris.qp/inline-parameters-for-display "SELECT 1" [1])))
+  (is (re-find #"Unable to safely expand SQL parameters"
+               (#'doris.qp/expanded-sql-for-error "SELECT ?" []))))
+
+(deftest expanded-sql-enforces-display-size-limits-test
+  (is (re-find #"too large to display safely"
+               (#'doris.qp/expanded-sql-for-error
+                "SELECT ?"
+                [(apply str (repeat 4097 "a"))])))
+  (is (re-find #"too large to display safely"
+               (#'doris.qp/expanded-sql-for-error
+                "SELECT ?"
+                [(byte-array 1025)])))
+  (is (re-find #"too large to display safely"
+               (#'doris.qp/expanded-sql-for-error
+                "SELECT ?"
+                [(.pow BigInteger/TEN 4097)])))
+  (let [value  (apply str (repeat 4090 "a"))
+        params (repeat 17 value)
+        sql    (str "SELECT " (str/join ", " (repeat 17 "?")))]
+    (is (re-find #"Expanded SQL query is too large to display safely"
+                 (#'doris.qp/expanded-sql-for-error sql params)))))
 
 (deftest query-error-includes-sql-test
   (let [query          {:native {:query  (str "SELECT *\n"
@@ -64,9 +162,7 @@
                   "SQL query:\n"
                   "SELECT *\n"
                   "FROM warehouses\n"
-                  "WHERE provider = ?\n\n"
-                  "Parameters:\n"
-                  "1: \"A\"")
+                  "WHERE provider = 'A'")
              (:error response)))
       (is (= "HY000" (:state response)))
       (is (= :invalid-query (:error_type response))))
@@ -78,9 +174,9 @@
                       (.getNextException ^SQLException visible-error)))
       (is (= [jdbc-error]
              (vec (.getSuppressed ^SQLException visible-error)))))
-    (testing "bound parameter values are listed separately from the SQL"
-      (is (re-find #"WHERE provider = \?" (:error response)))
-      (is (re-find #"1: \"A\"" (:error response)))
+    (testing "bound parameter values are safely inlined in the displayed SQL"
+      (is (re-find #"WHERE provider = 'A'" (:error response)))
+      (is (not (re-find #"Parameters:" (:error response))))
       (is (not (re-find #"internal-hash" (:error response))))
       (is (= error-data (ex-data thrown))))))
 

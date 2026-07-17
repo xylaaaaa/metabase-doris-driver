@@ -14,16 +14,28 @@
    [metabase.util.log :as log])
   (:import
    (clojure.lang ExceptionInfo)
-   (java.nio ByteBuffer)
-   (java.sql Connection PreparedStatement ResultSet SQLException)
-   (java.time LocalTime OffsetDateTime OffsetTime ZonedDateTime)
-   (java.time.temporal TemporalAccessor)
-   (java.util Date UUID)))
+   (java.nio.charset StandardCharsets)
+   (java.sql Connection Date PreparedStatement ResultSet SQLException Time Timestamp)
+   (java.time LocalDate LocalDateTime LocalTime OffsetDateTime OffsetTime ZonedDateTime)
+   (java.util UUID)
+   (org.mariadb.jdbc.util ClientParser)))
 
 (defmethod sql.qp/quote-style :doris [_] :mysql)
 
 (def ^:dynamic *preserve-offset-datetime-parameters*
   false)
+
+(defn- offset-date-time-parameter-value
+  [value]
+  (if *preserve-offset-datetime-parameters*
+    (t/local-date-time (t/with-offset-same-instant value (t/zone-offset 0)))
+    (let [zone   (t/zone-id (driver-api/results-timezone-id))
+          offset (.. zone getRules (getOffset (t/instant value)))]
+      (t/local-date-time (t/with-offset-same-instant value offset)))))
+
+(defn- offset-time-parameter-value
+  [value]
+  (t/local-time (t/with-offset-same-instant value (t/zone-offset 0))))
 
 (defn- innermost-sql-exception
   [error]
@@ -37,34 +49,168 @@
 (def ^:private byte-array-class
   (class (byte-array 0)))
 
-(defn- format-parameter
+(def ^:private max-display-sql-length 65536)
+(def ^:private max-display-literal-length 4096)
+(def ^:private max-display-binary-length 1024)
+
+(defn- checked-display-literal
+  [literal]
+  (when (> (count literal) max-display-literal-length)
+    (throw (ex-info "Rendered SQL parameter is too large to display safely."
+                    {:length (count literal)})))
+  literal)
+
+(defn- quoted-sql-string
+  [value]
+  (let [value (str value)]
+    (when (> (count value) max-display-literal-length)
+      (throw (ex-info "SQL string parameter is too large to display safely."
+                      {:length (count value)})))
+    (when (some (fn [character]
+                  (or (= character \\)
+                      (Character/isISOControl (int character))))
+                value)
+      (throw (ex-info "SQL string parameter requires session-dependent escaping."
+                      {})))
+    ;; Doubling apostrophes is equivalent with and without NO_BACKSLASH_ESCAPES.
+    (checked-display-literal (str "'" (str/replace value "'" "''") "'"))))
+
+(defn- sql-number-for-display
+  [value]
+  (checked-display-literal
+   (cond
+     (or (integer? value) (decimal? value))
+     (str value)
+
+     (and (instance? Double value) (Double/isFinite ^double value))
+     (str value)
+
+     (and (instance? Float value) (Float/isFinite ^float value))
+     (str value)
+
+     :else
+     (throw (ex-info "Unsupported or non-finite SQL number."
+                     {:value value})))))
+
+(defn- bytes->hex
+  [^bytes value]
+  (when (> (alength value) max-display-binary-length)
+    (throw (ex-info "Binary SQL parameter is too large to display safely."
+                    {:length (alength value)})))
+  (let [digits "0123456789ABCDEF"
+        result (StringBuilder. (* 2 (alength value)))]
+    (doseq [byte-value value]
+      (let [unsigned-value (bit-and (int byte-value) 0xff)]
+        (.append result (.charAt digits (bit-shift-right unsigned-value 4)))
+        (.append result (.charAt digits (bit-and unsigned-value 0x0f)))))
+    (.toString result)))
+
+(defn- local-date-time-sql-string
+  [^LocalDateTime value]
+  ;; Connector/J encodes temporal parameters with microsecond precision.
+  (t/format "yyyy-MM-dd HH:mm:ss.SSSSSS" value))
+
+(defn- local-time-sql-string
+  [^LocalTime value]
+  (t/format "HH:mm:ss.SSSSSS" value))
+
+(defn- temporal-sql-literal-for-display
+  [value]
+  (cond
+    (instance? LocalDate value)      (quoted-sql-string (t/format "yyyy-MM-dd" value))
+    (instance? LocalDateTime value)  (quoted-sql-string (local-date-time-sql-string value))
+    (instance? LocalTime value)      (quoted-sql-string (local-time-sql-string value))
+    (instance? Date value)           (temporal-sql-literal-for-display (.toLocalDate ^Date value))
+    (instance? Time value)           (temporal-sql-literal-for-display (.toLocalTime ^Time value))
+    (instance? Timestamp value)      (temporal-sql-literal-for-display (.toLocalDateTime ^Timestamp value))
+    (instance? OffsetDateTime value) (temporal-sql-literal-for-display
+                                      (offset-date-time-parameter-value value))
+    (instance? OffsetTime value)     (temporal-sql-literal-for-display
+                                      (offset-time-parameter-value value))
+    (instance? ZonedDateTime value)  (temporal-sql-literal-for-display
+                                      (offset-date-time-parameter-value (.toOffsetDateTime ^ZonedDateTime value)))
+    :else                            (throw (ex-info "Unsupported temporal SQL parameter type."
+                                                     {:type (class value)}))))
+
+(defn- sql-literal-for-display
   [value]
   (cond
     (nil? value)                       "NULL"
-    (or (string? value) (char? value)) (pr-str value)
-    (or (number? value) (boolean? value)) (str value)
-    (instance? TemporalAccessor value) (str value)
-    (instance? Date value)             (str value)
-    (instance? UUID value)             (str value)
-    (instance? byte-array-class value) (format "<binary %d bytes>" (alength ^bytes value))
-    (instance? ByteBuffer value)        (format "<binary %d bytes>" (.remaining ^ByteBuffer value))
-    :else                               (format "<%s>" (.getName (class value)))))
+    (or (string? value) (char? value)) (quoted-sql-string value)
+    (boolean? value)                   (if value "TRUE" "FALSE")
+    (number? value)                    (sql-number-for-display value)
+    (or (instance? LocalDate value)
+        (instance? LocalDateTime value)
+        (instance? LocalTime value)
+        (instance? Date value)
+        (instance? Time value)
+        (instance? Timestamp value)
+        (instance? OffsetDateTime value)
+        (instance? OffsetTime value)
+        (instance? ZonedDateTime value))
+    (temporal-sql-literal-for-display value)
+    (instance? UUID value)             (quoted-sql-string value)
+    (instance? byte-array-class value) (checked-display-literal (str "X'" (bytes->hex value) "'"))
+    :else                              (throw (ex-info "Unsupported SQL parameter type."
+                                                       {:type (class value)}))))
 
-(defn- format-parameters
-  [params]
-  (when (seq params)
-    (str "\n\nParameters:\n"
-         (str/join "\n"
-                   (map-indexed (fn [index value]
-                                  (format "%d: %s" (inc index) (format-parameter value)))
-                                params)))))
+(defn- append-display-fragment!
+  [^StringBuilder result ^String fragment]
+  (let [new-length (+ (.length result) (.length fragment))]
+    (when (> new-length max-display-sql-length)
+      (throw (ex-info "Expanded SQL query is too large to display safely."
+                      {:length new-length})))
+    (.append result fragment)))
+
+(defn- inline-parameters-for-display
+  [^String sql params]
+  (when (> (.length sql) max-display-sql-length)
+    (throw (ex-info "SQL query is too large to display safely."
+                    {:length (.length sql)})))
+  ;; Reuse Connector/J's parser so quoted and commented question marks match JDBC exactly.
+  ;; ClientParser reports UTF-8 byte offsets, not Java character indexes.
+  (let [params                        (vec params)
+        parameter-positions           (vec (.getParamPositions (ClientParser/parameterParts sql false)))
+        no-backslash-escape-positions (vec (.getParamPositions (ClientParser/parameterParts sql true)))
+        parameter-count               (count params)
+        placeholder-count             (count parameter-positions)]
+    (when-not (= parameter-positions no-backslash-escape-positions)
+      (throw (ex-info "SQL placeholder positions depend on the session backslash-escape mode."
+                      {})))
+    (when-not (= parameter-count placeholder-count)
+      (throw (ex-info "SQL parameter count does not match placeholder count."
+                      {:parameter-count   parameter-count
+                       :placeholder-count placeholder-count})))
+    (let [sql-bytes (.getBytes sql StandardCharsets/UTF_8)
+          result    (StringBuilder. (.length sql))]
+      (loop [positions parameter-positions
+             values    params
+             start     0]
+        (if-let [position (first positions)]
+          (do
+            (append-display-fragment!
+             result
+             (String. sql-bytes start (- position start) StandardCharsets/UTF_8))
+            (append-display-fragment! result (sql-literal-for-display (first values)))
+            (recur (next positions) (next values) (inc position)))
+          (do
+            (append-display-fragment!
+             result
+             (String. sql-bytes start (- (alength sql-bytes) start) StandardCharsets/UTF_8))
+            (.toString result)))))))
+
+(defn- expanded-sql-for-error
+  [sql params]
+  (try
+    (inline-parameters-for-display sql params)
+    (catch Exception error
+      (format "<Unable to safely expand SQL parameters: %s>" (ex-message error)))))
 
 (defn- ^SQLException sql-exception-with-query
   [^SQLException error ^Throwable original-cause sql params]
   (doto (SQLException. (str (ex-message error)
                             "\n\nSQL query:\n"
-                            sql
-                            (format-parameters params))
+                            (expanded-sql-for-error sql params))
                        (.getSQLState error)
                        (.getErrorCode error))
     (.setNextException error)
@@ -107,16 +253,11 @@
 
 (defmethod sql-jdbc.execute/set-parameter [:doris OffsetDateTime]
   [driver ^PreparedStatement prepared-statement ^Integer i value]
-  (if *preserve-offset-datetime-parameters*
-    (sql-jdbc.execute/set-parameter
-     driver
-     prepared-statement
-     i
-     (t/local-date-time (t/with-offset-same-instant value (t/zone-offset 0))))
-    (let [zone   (t/zone-id (driver-api/results-timezone-id))
-          offset (.. zone getRules (getOffset (t/instant value)))
-          value  (t/local-date-time (t/with-offset-same-instant value offset))]
-      (sql-jdbc.execute/set-parameter driver prepared-statement i value))))
+  (sql-jdbc.execute/set-parameter
+   driver
+   prepared-statement
+   i
+   (offset-date-time-parameter-value value)))
 
 (defmethod sql-jdbc.execute/set-parameter [:doris OffsetTime]
   [driver ^PreparedStatement prepared-statement ^Integer i value]
@@ -124,7 +265,7 @@
    driver
    prepared-statement
    i
-   (t/local-time (t/with-offset-same-instant value (t/zone-offset 0)))))
+   (offset-time-parameter-value value)))
 
 (defn- format-offset
   [value]
