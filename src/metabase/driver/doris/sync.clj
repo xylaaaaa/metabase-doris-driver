@@ -345,10 +345,6 @@
                                  []))))
                    tables))))))))
 
-(defmethod driver/describe-table-fks :doris
-  [_driver _database _table]
-  #{})
-
 (defmethod sql-jdbc.sync/current-user-table-privileges :doris
   [_driver _conn-spec & _options]
   nil)
