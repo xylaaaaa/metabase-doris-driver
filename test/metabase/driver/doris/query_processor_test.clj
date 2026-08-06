@@ -134,12 +134,43 @@
     (is (re-find #"Expanded SQL query is too large to display safely"
                  (#'doris.qp/expanded-sql-for-error sql params)))))
 
+(deftest error-location-adjustment-test
+  (testing "adjusts Doris locations for Metabase metadata comments"
+    (is (= "Syntax error at ')' (line 12, pos 46)"
+           (#'doris.qp/adjust-error-location
+            "Syntax error at ')' (line 13, pos 46)"
+            ["-- Metabase:: userID: 1 queryType: native"
+             "SELECT"
+             "..."]))))
+  (testing "counts every leading Metabase metadata line"
+    (is (= "Syntax error (line 7, pos 3)"
+           (#'doris.qp/adjust-error-location
+            "Syntax error (line 9, pos 3)"
+            ["-- Metabase:: first metadata line"
+             "-- Metabase:: second metadata line"
+             "SELECT 1"]))))
+  (testing "supports CRLF SQL strings"
+    (is (= "Syntax error (line 2, pos 0)"
+           (#'doris.qp/adjust-error-location
+            "Syntax error (line 3, pos 0)"
+            "-- Metabase:: metadata\r\nSELECT\r\nFROM table"))))
+  (testing "leaves errors unchanged without an injected metadata prefix"
+    (is (= "Syntax error (line 3, pos 0)"
+           (#'doris.qp/adjust-error-location
+            "Syntax error (line 3, pos 0)"
+            ["SELECT" "FROM table" "WHERE broken"]))))
+  (testing "leaves messages without a Doris location unchanged"
+    (is (= "Connection is closed"
+           (#'doris.qp/adjust-error-location
+            "Connection is closed"
+            ["-- Metabase:: metadata" "SELECT 1"])))))
+
 (deftest query-error-includes-sql-test
   (let [query          {:native {:query  (str "SELECT *\n"
                                                 "FROM warehouses\n"
                                                 "WHERE provider = ?")
                                  :params ["A"]}}
-        original-error (SQLException. "Doris parser error" "HY000" 2)
+        original-error (SQLException. "Doris parser error (line 4, pos 18)" "HY000" 2)
         jdbc-error     (doto (SQLException. "JDBC wrapper error" "08000" 0)
                          (.initCause original-error))
         error-data     {:type   :invalid-query
@@ -148,7 +179,7 @@
                                  "FROM warehouses"
                                  "WHERE provider = ?"]
                         :params ["A"]}
-        query-error    (ex-info "Error executing query: Doris parser error"
+        query-error    (ex-info "Error executing query: Doris parser error (line 4, pos 18)"
                                 error-data
                                 jdbc-error)
         thrown         (with-redefs [sql-jdbc.execute/execute-reducible-query
@@ -161,7 +192,7 @@
         response       (catch-exceptions/exception-response thrown)
         visible-error  (ex-cause thrown)]
     (testing "the user-visible JDBC error includes the generated SQL"
-      (is (= (str "Doris parser error\n\n"
+      (is (= (str "Doris parser error (line 3, pos 18)\n\n"
                   "SQL query:\n"
                   "SELECT *\n"
                   "FROM warehouses\n"
