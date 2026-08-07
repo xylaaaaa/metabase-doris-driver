@@ -10,6 +10,7 @@
    [metabase.driver.sql-jdbc.sync :as sql-jdbc.sync]
    [metabase.util.log :as log])
   (:import
+   (clojure.lang MultiFn)
    (java.sql Connection ResultSet)))
 
 (def system-excluded-schemas
@@ -344,6 +345,14 @@
                                                    catalog (:schema table) (:name table)))
                                  []))))
                    tables))))))))
+
+(when-let [legacy-describe-table-fks (ns-resolve 'metabase.driver 'describe-table-fks)]
+  ;; Metabase removed this multimethod in 0.63. Register it only on older
+  ;; versions so loading the Doris driver does not resolve a removed Var.
+  (.addMethod ^MultiFn (var-get legacy-describe-table-fks)
+              :doris
+              (fn [_driver _database _table]
+                #{})))
 
 (defmethod sql-jdbc.sync/current-user-table-privileges :doris
   [_driver _conn-spec & _options]
