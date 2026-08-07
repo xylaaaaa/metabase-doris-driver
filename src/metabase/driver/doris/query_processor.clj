@@ -36,6 +36,12 @@
   [value]
   (t/local-time (t/with-offset-same-instant value (t/zone-offset 0))))
 
+(def ^:private doris-error-location-pattern
+  #"\(line\s+(\d+),\s*pos\s+(\d+)\)")
+
+(def ^:private metabase-query-comment-pattern
+  #"^\s*--\s*Metabase::")
+
 (defn- innermost-sql-exception
   [error]
   (loop [cause error
@@ -246,9 +252,37 @@
     (catch Exception error
       (format "<Unable to safely expand SQL parameters: %s>" (ex-message error)))))
 
+(defn- sql-lines
+  [sql]
+  (cond
+    (string? sql)     (str/split sql #"\r?\n" -1)
+    (sequential? sql) (mapcat #(str/split (str %) #"\r?\n" -1) sql)
+    :else             []))
+
+(defn- metabase-prefix-line-count
+  [executed-sql]
+  (count
+   (take-while #(re-find metabase-query-comment-pattern %)
+               (sql-lines executed-sql))))
+
+(defn- adjust-error-location
+  [message executed-sql]
+  (let [line-offset (metabase-prefix-line-count executed-sql)]
+    (if (zero? line-offset)
+      message
+      (str/replace
+       message
+       doris-error-location-pattern
+       (fn [[original database-line position]]
+         (let [database-line (Long/parseLong database-line)
+               editor-line   (- database-line line-offset)]
+           (if (pos? editor-line)
+             (format "(line %d, pos %s)" editor-line position)
+             original)))))))
+
 (defn- ^SQLException sql-exception-with-query
-  [^SQLException error ^Throwable original-cause sql params]
-  (doto (SQLException. (str (ex-message error)
+  [^SQLException error ^Throwable original-cause sql params executed-sql]
+  (doto (SQLException. (str (adjust-error-location (ex-message error) executed-sql)
                             "\n\nSQL query:\n"
                             (expanded-sql-for-error sql params))
                        (.getSQLState error)
@@ -271,7 +305,8 @@
                           (sql-exception-with-query sql-exception
                                                     (ex-cause error)
                                                     (get-in query [:native :query])
-                                                    (:params error-data))))
+                                                    (:params error-data)
+                                                    (:sql error-data))))
           (throw error))))))
 
 (defmethod sql.qp/->honeysql [:doris :field]
