@@ -412,5 +412,9 @@
         (is (= 1 (count @query-calls)))
         (is (= database (ffirst @query-calls)))))))
 
-(deftest describe-table-fks-test
-  (is (= #{} (driver/describe-table-fks :doris {:id 1} {:id 2}))))
+(deftest legacy-describe-table-fks-compatibility-test
+  (if-let [legacy-describe-table-fks (ns-resolve 'metabase.driver 'describe-table-fks)]
+    (testing "registers the legacy method when Metabase still provides it"
+      (is (= #{} ((var-get legacy-describe-table-fks) :doris {:id 1} {:id 2}))))
+    (testing "does not require the removed method on Metabase 0.63 and later"
+      (is (false? (driver/database-supports? :doris :metadata/key-constraints nil))))))
