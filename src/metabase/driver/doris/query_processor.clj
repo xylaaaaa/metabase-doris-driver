@@ -21,6 +21,18 @@
 
 (defmethod sql.qp/quote-style :doris [_] :mysql)
 
+(defmethod sql.qp/->honeysql [:doris ::h2x/identifier]
+  [_ [_ identifier-type components :as identifier]]
+  (if (and (#{:table :field} identifier-type)
+           (sequential? components)
+           (string? (first components))
+           (str/includes? (first components) "."))
+    (let [[catalog schema] (str/split (first components) #"\." 2)]
+      (with-meta
+        (apply h2x/identifier identifier-type catalog schema (rest components))
+        (meta identifier)))
+    identifier))
+
 (def ^:dynamic *preserve-offset-datetime-parameters*
   false)
 

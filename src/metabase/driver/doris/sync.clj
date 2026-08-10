@@ -16,6 +16,9 @@
 (def system-excluded-schemas
   #{"information_schema" "__internal_schema" "mysql"})
 
+(def system-excluded-catalogs
+  #{"__internal_schema"})
+
 (defn quote-name
   "Quote a SQL identifier with backticks, escaping any existing backticks."
   [s]
@@ -65,6 +68,12 @@
 (defn normalize-schema-name
   [schema]
   (some-> schema str str/trim str/lower-case))
+
+(defn split-schema-name
+  [schema]
+  (let [[catalog database] (str/split schema #"\." 2)]
+    (when database
+      [catalog database])))
 
 (defn schema-visible?
   [{:keys [include-schemas exclude-schemas]} schema]
@@ -158,6 +167,18 @@
                         schemas)
             schemas))))))
 
+(defn- get-catalogs
+  [^Connection conn]
+  (with-open [stmt (.createStatement conn)
+              rs   (.executeQuery stmt "SHOW CATALOGS")]
+    (loop [catalogs []]
+      (if (.next ^ResultSet rs)
+        (let [catalog (.getString ^ResultSet rs "CatalogName")]
+          (recur (if (contains? system-excluded-catalogs catalog)
+                   catalogs
+                   (conj catalogs catalog))))
+        catalogs))))
+
 (defn- get-tables-in-schema
   "Fetch tables from a schema. Throws exception if the query fails (e.g., catalog not found, permission denied).
   Returns empty vector only if the schema genuinely has no tables."
@@ -188,6 +209,22 @@
           (mapcat (fn [schema]
                     (get-tables-in-schema catalog conn schema)))
           schemas)))
+
+(defn- requested-schemas
+  [catalog dbname schema-names]
+  (or (when schema-names
+        (keep (fn [schema]
+                (let [[schema-catalog database] (split-schema-name schema)]
+                  (when (= catalog schema-catalog)
+                    database)))
+              schema-names))
+      (when dbname [dbname])))
+
+(defn- catalog-tables
+  [details catalog dbname ^Connection conn schema-names]
+  (let [schemas (requested-schemas catalog dbname schema-names)]
+    (map #(update % :schema (fn [schema] (str catalog "." schema)))
+         (get-tables details catalog nil conn schemas))))
 
 (defn- get-fields-in-table
   [catalog ^Connection conn {schema :schema table-name :name}]
@@ -288,6 +325,7 @@
   [driver database]
   (let [details               (driver.conn/effective-details database)
         {:keys [catalog dbname]} details
+        all-catalogs?         (str/blank? catalog)
         catalog               (doris.conn/normalize-catalog catalog)
         dbname                (doris.conn/normalize-db dbname)]
     (sql-jdbc.execute/do-with-connection-with-options
@@ -295,21 +333,30 @@
      database
      nil
      (fn [^Connection conn]
-       (let [tables (set (get-tables details catalog dbname conn nil))]
+       (let [tables (set (if all-catalogs?
+                           (mapcat #(catalog-tables details % dbname conn nil)
+                                   (get-catalogs conn))
+                           (get-tables details catalog dbname conn nil)))]
          (log/debugf "Doris sync: describe-database catalog=%s dbname=%s table-count=%d"
-                    catalog dbname (count tables))
+                    (if all-catalogs? "all" catalog) dbname (count tables))
          {:tables tables})))))
 
 (defmethod driver/describe-table :doris
   [driver database {schema :schema table-name :name}]
   (let [{:keys [catalog]} (driver.conn/effective-details database)
-        catalog (doris.conn/normalize-catalog catalog)]
+        all-catalogs?     (str/blank? catalog)
+        [catalog schema]  (if all-catalogs?
+                            (or (split-schema-name schema)
+                                (throw (ex-info "Multi-catalog schema must use catalog.database format."
+                                                {:schema schema})))
+                            [(doris.conn/normalize-catalog catalog) schema])
+        display-schema    (if all-catalogs? (str catalog "." schema) schema)]
     (sql-jdbc.execute/do-with-connection-with-options
      driver
      database
      nil
      (fn [^Connection conn]
-       {:schema schema
+       {:schema display-schema
         :name   table-name
         :fields (set (get-fields-in-table catalog conn {:schema schema :name table-name}))}))))
 
@@ -320,30 +367,39 @@
     []
     (let [details               (driver.conn/effective-details database)
           {:keys [catalog dbname]} details
+          all-catalogs?         (str/blank? catalog)
           catalog               (doris.conn/normalize-catalog catalog)
           dbname                (doris.conn/normalize-db dbname)]
-      (if (= catalog doris.conn/default-catalog)
+      (if (and (not all-catalogs?)
+               (= catalog doris.conn/default-catalog))
         (get-internal-fields database details schema-names table-names)
         (sql-jdbc.execute/do-with-connection-with-options
          driver
          database
          nil
          (fn [^Connection conn]
-           (let [tables (select-tables
-                         (get-tables details catalog dbname conn schema-names)
-                         schema-names
-                         table-names)]
+           (let [catalogs (if all-catalogs? (get-catalogs conn) [catalog])
+                 tables   (if all-catalogs?
+                            (mapcat #(catalog-tables details % dbname conn schema-names)
+                                    catalogs)
+                            (get-tables details catalog dbname conn schema-names))
+                 tables   (select-tables tables schema-names table-names)]
              (into []
-                   (mapcat (fn [table]
-                             (try
-                               (fields-with-table-identity
-                                (get-fields-in-table catalog conn table)
-                                table)
-                               (catch Throwable e
-                                 (log/warn e
-                                           (format "Failed to describe Doris table %s.%s.%s"
-                                                   catalog (:schema table) (:name table)))
-                                 []))))
+                   (mapcat (fn [{qualified-schema :schema :as table}]
+                             (let [[table-catalog table-schema]
+                                   (if all-catalogs?
+                                     (split-schema-name qualified-schema)
+                                     [catalog qualified-schema])]
+                               (try
+                                 (fields-with-table-identity
+                                  (get-fields-in-table
+                                   table-catalog conn (assoc table :schema table-schema))
+                                  table)
+                                 (catch Throwable e
+                                   (log/warn e
+                                             (format "Failed to describe Doris table %s.%s.%s"
+                                                     table-catalog table-schema (:name table)))
+                                   [])))))
                    tables))))))))
 
 (when-let [legacy-describe-table-fks (ns-resolve 'metabase.driver 'describe-table-fks)]

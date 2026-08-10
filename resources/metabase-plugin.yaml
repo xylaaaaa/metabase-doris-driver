@@ -20,11 +20,11 @@ driver:
       display-name: Catalog
       placeholder: internal
       required: false
-      helper-text: Doris catalog name. Internal and validated external catalogs are supported.
+      helper-text: Leave empty to sync all catalogs, or enter one catalog name to sync only that catalog.
     - name: dbname
       display-name: Database (optional)
       required: false
-      helper-text: Specific database within the catalog. Leave empty to sync all visible databases in the catalog.
+      helper-text: Optional database filter. Leave empty to sync all visible databases.
     - user
     - password
     - group:
