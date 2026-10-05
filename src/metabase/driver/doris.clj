@@ -71,7 +71,6 @@
                               :persist-models                   false
                               :table-privileges                 false
                               :metadata/key-constraints         false
-                              :describe-fks                     false
                               :describe-fields                  true
                               :describe-indexes                 false
                               :index-info                       false
@@ -92,3 +91,9 @@
                               :database-routing                 false
                               :convert-timezone                 true}]
   (defmethod driver/database-supports? [:doris feature] [_ _ _] supported?))
+
+;; Metabase 0.63 removed this feature; retain the legacy value only where
+;; the runtime still recognizes it. FK metadata stays disabled through
+;; :metadata/key-constraints on every supported version.
+(when (contains? driver/features :describe-fks)
+  (defmethod driver/database-supports? [:doris :describe-fks] [_ _ _] false))

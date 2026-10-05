@@ -85,7 +85,8 @@
     (is (false? (driver/database-supports? :doris :parameterized-sql nil)))
     (is (false? (driver/database-supports? :doris :table-privileges nil)))
     (is (false? (driver/database-supports? :doris :metadata/key-constraints nil)))
-    (is (false? (driver/database-supports? :doris :describe-fks nil)))
+    (when (contains? driver/features :describe-fks)
+      (is (false? (driver/database-supports? :doris :describe-fks nil))))
     (is (false? (driver/database-supports? :doris :describe-indexes nil)))
     (is (false? (driver/database-supports? :doris :index-info nil)))
     (is (false? (driver/database-supports? :doris :nested-fields nil)))
@@ -99,6 +100,22 @@
 (deftest default-schema-test
   (is (nil? (driver.sql/default-schema :doris))))
 
+(defn- substitute-native-parameters
+  "Exercise the parameter API used by the selected Metabase runtime."
+  [driver native-query]
+  (if-let [substitute-stage (ns-resolve 'metabase.driver 'substitute-native-parameters-in-stage)]
+    (let [make-query (requiring-resolve 'metabase.lib.core/query)
+          metadata-provider ((requiring-resolve
+                              'metabase.lib.metadata.composed-provider/composed-metadata-provider))
+          query (make-query metadata-provider
+                            {:database 1
+                             :type :native
+                             :native (dissoc native-query :parameters)})
+          stage (assoc (first (:stages query)) :parameters (:parameters native-query))
+          substituted (substitute-stage driver metadata-provider stage)]
+      (assoc native-query :query (:native substituted) :params (:params substituted)))
+    (driver/substitute-native-parameters driver native-query)))
+
 (deftest native-parameter-substitution-test
   (testing "Doris native queries support basic template-tag substitution"
     (binding [driver/*driver* :doris]
@@ -108,7 +125,7 @@
                             :target [:variable [:template-tag "aid"]]
                             :value 2}]
               :params []}
-             (driver/substitute-native-parameters
+             (substitute-native-parameters
               :doris
               {:query "SELECT * FROM test_insert_order WHERE aid = {{aid}}"
                :template-tags {"aid" {:name "aid" :display-name "Aid" :type :number}}
@@ -125,7 +142,7 @@
                             :target [:variable [:template-tag "pname"]]
                             :value "wow"}]
               :params ["wow"]}
-             (driver/substitute-native-parameters
+             (substitute-native-parameters
               :doris
               {:query "SELECT * FROM test_insert_order WHERE 1 = 1 [[AND pname = {{pname}}]]"
                :template-tags {"pname" {:name "pname" :display-name "Pname" :type :text}}

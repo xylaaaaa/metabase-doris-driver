@@ -24,13 +24,15 @@ under the License.
 A standalone, analytics-focused Metabase community driver for Apache Doris. It connects to a Doris FE through the MySQL
 protocol and models Doris metadata as `catalog -> database -> table`.
 
-Release target: **`v1.0.0`**
+Release target: **`v1.0.1` (candidate; not yet published)**
 
 ## Compatibility
 
-The v1.0.0 driver preserves the complete 29-capability contract advertised by the legacy official Doris driver. An
-automated parity test locks those capability values, including schema and field discovery, joins, date and text
-expressions, timezone handling, standard deviation, and the capabilities that remain intentionally disabled.
+The driver preserves the legacy official Doris driver's capability values wherever the selected Metabase runtime
+still recognizes them. Metabase 0.63 removed the legacy foreign-key API and the `:describe-fks` feature flag; the
+driver registers them only on older runtimes. Foreign-key metadata remains disabled through
+`:metadata/key-constraints`. Automated parity tests cover schema and field discovery, joins, date and text
+expressions, timezone handling, standard deviation, and deliberately disabled capabilities.
 
 This driver also adds verified behavior beyond that baseline:
 
@@ -45,15 +47,22 @@ This driver also adds verified behavior beyond that baseline:
 - Doris global/system timezone discovery;
 - Doris-compatible connection defaults and error messages.
 
-Validated Metabase versions:
+Validated versions for the v1.0.1 candidate:
 
-| Metabase | Automated driver suite | Live Doris integration |
-| --- | --- | --- |
-| `0.59.6.3` | Passed | Not run |
-| `0.60.1` | Passed | Passed |
-| `0.60.2.2` | Passed | Not run |
+| Metabase | Automated driver suite | Exact candidate JAR suite | Live internal-catalog smoke |
+| --- | --- | --- | --- |
+| `0.59.6.3` | Passed: 85 tests, 402 assertions | Not run | Not run |
+| `0.60.1` | Passed: 85 tests, 402 assertions | Passed | Passed |
+| `0.60.2.2` | Passed: 85 tests, 402 assertions | Not run | Not run |
+| `0.63.16` | Passed: 85 tests, 400 assertions | Passed | Passed |
 
 These are exact tested versions, not a claim of compatibility with every later Metabase release.
+
+The automated suite includes mocked JDBC/metadata tests. Separate live checks on 2026-10-05 installed the exact
+candidate JAR into real Metabase plugin directories and exercised connection validation, schema sync, native SQL,
+grouped Query Builder, approximate percentile, `NOW(6)`, Unicode, result aliases with spaces, and native parameters
+against an existing Doris teaching instance (image 4.1.3; FE reports `doris-4.1.3-rc02-7126cf65d96`). External catalogs
+and source table/column names containing spaces were not exercised in that live run. See [TESTING.md](TESTING.md).
 
 ## Catalog And Metadata Support
 
@@ -74,23 +83,23 @@ identify auto-increment or generated columns even though the driver preserves th
 ## Requirements
 
 - Java 21
-- Metabase `0.59.6.3`, `0.60.1`, or `0.60.2.2`
+- Metabase `0.59.6.3`, `0.60.1`, `0.60.2.2`, or `0.63.16`, within the validation scope above
 - A reachable Apache Doris FE MySQL protocol endpoint, normally port `9030`
 - Clojure CLI only when building or running the test suite from source
 
 ## Download And Install
 
-The GitHub release asset is created only after the `v1.0.0` tag is published. Once that release exists, download it
-from [GitHub Releases](https://github.com/xylaaaaa/metabase-doris-driver/releases/latest). The expected asset name is:
+The v1.0.1 candidate includes the fix for
+[issue #7](https://github.com/xylaaaaa/metabase-doris-driver/issues/7). The published v1.0.0 JAR fails to load on
+Metabase 0.63.16. Build this candidate from source until v1.0.1 is published, then select that version explicitly
+from [GitHub Releases](https://github.com/xylaaaaa/metabase-doris-driver/releases). The expected release asset is:
 
 ```text
-doris.metabase-driver-v1.0.0.jar
+doris.metabase-driver-v1.0.1.jar
 ```
 
-Until the tag is published, build the artifact from source; do not treat the Releases link as proof that a release is
-already available.
-
-Copy the downloaded or locally built JAR into Metabase's plugin directory and restart Metabase:
+Keep one Doris driver JAR in Metabase's plugin directory: remove the previous Doris driver JAR before installing
+the candidate or new release. Copy the locally built JAR and restart Metabase:
 
 ```bash
 cp target/doris.metabase-driver.jar /path/to/metabase/plugins/
@@ -125,7 +134,7 @@ bash scripts/run-unit-tests.sh
 Run the complete validated matrix:
 
 ```bash
-for version in 0.59.6.3 0.60.1 0.60.2.2; do
+for version in 0.59.6.3 0.60.1 0.60.2.2 0.63.16; do
   METABASE_TEST_VERSION="$version" bash scripts/run-unit-tests.sh
 done
 ```
@@ -163,8 +172,9 @@ inside the selected catalog and applies the include/exclude filters before listi
 - Named timezone conversion depends on the timezone data available to the connected Doris deployment.
 - External catalog behavior and metadata completeness remain connector-dependent.
 
-The capability parity claim covers the legacy driver's 29 advertised capability flags. It does not imply support for
-features the legacy driver also disabled, untested future Metabase versions, or every external catalog implementation.
+The capability parity claim covers the legacy driver's 29 advertised flags on older runtimes and the 28 retained
+flags on Metabase 0.63.16. It does not imply support for disabled features, untested Metabase versions, or every
+external catalog implementation.
 
 ## Repository Layout
 
@@ -182,5 +192,5 @@ features the legacy driver also disabled, untested future Metabase versions, or 
 `-- IMPLEMENTATION-RESULTS.md
 ```
 
-Implementation evidence for this release target is recorded in
-[IMPLEMENTATION-RESULTS.md](IMPLEMENTATION-RESULTS.md).
+Historical v1.0.0 implementation evidence is recorded in [IMPLEMENTATION-RESULTS.md](IMPLEMENTATION-RESULTS.md).
+The candidate's changes and compatibility scope are recorded in [RELEASE-NOTES-1.0.1.md](RELEASE-NOTES-1.0.1.md).
