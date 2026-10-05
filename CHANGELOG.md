@@ -19,6 +19,18 @@ under the License.
 
 # Changelog
 
+## 1.0.1 - Unreleased
+
+- Include the runtime guard for the foreign-key API removed in Metabase 0.63, fixing the v1.0.0 namespace-loading and
+  sync failure reported in issue #7.
+- Register the legacy `:describe-fks` feature only on runtimes that still recognize it; keep key-constraint metadata
+  disabled on all validated versions.
+- Adapt tests to the current native-stage parameter API and add Metabase 0.63.16 to the pinned test and CI matrices.
+- Validate the exact candidate JAR and live internal-catalog smoke path on Metabase 0.63.16 and 0.60.1; retain automated
+  validation on 0.59.6.3 and 0.60.2.2. See RELEASE-NOTES-1.0.1.md for the tested scope.
+- Include post-v1.0.0 master improvements to invalid-credential messages, SQL/parameter error display, Connector/J
+  2.x/3.x parameter parsing, and query error line numbers.
+
 ## 1.0.0 - 2026-07-13
 
 - Cover the Doris capabilities exposed by the legacy Metabase driver.

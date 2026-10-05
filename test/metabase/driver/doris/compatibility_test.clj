@@ -43,9 +43,17 @@
    :inner-join                             true})
 
 (deftest official-driver-capability-parity-test
-  (doseq [[feature expected] official-driver-capabilities]
+  (doseq [[feature expected] official-driver-capabilities
+          :when (or (not= feature :describe-fks)
+                    (contains? driver/features :describe-fks))]
     (is (= expected (driver/database-supports? :doris feature nil))
         (str "Unexpected Doris support for " feature))))
+
+(deftest legacy-fk-feature-registration-test
+  (if (contains? driver/features :describe-fks)
+    (is (false? (driver/database-supports? :doris :describe-fks nil)))
+    (is (not (contains? (methods driver/database-supports?) [:doris :describe-fks]))))
+  (is (false? (driver/database-supports? :doris :metadata/key-constraints nil))))
 
 (deftest advanced-query-builder-capabilities-test
   (testing "verified legacy Query Builder capabilities are advertised"

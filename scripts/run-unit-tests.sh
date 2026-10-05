@@ -18,6 +18,9 @@ case "$METABASE_VERSION" in
   0.60.2.2)
     METABASE_SHA256="f2e7e27a81c2168ce4c87801c420a4b7fa4bfcfb89fdbc4944a9db82bbe45f70"
     ;;
+  0.63.16)
+    METABASE_SHA256="2e171aa7d03f10b57d92775428442203e2c5e70ecdcf781f53368e5d8f59af87"
+    ;;
   *)
     echo "Unsupported Metabase test version: $METABASE_VERSION" >&2
     exit 1

@@ -37,19 +37,27 @@ bash scripts/run-unit-tests.sh
 METABASE_TEST_VERSION=0.59.6.3 bash scripts/run-unit-tests.sh
 METABASE_TEST_VERSION=0.60.1 bash scripts/run-unit-tests.sh
 METABASE_TEST_VERSION=0.60.2.2 bash scripts/run-unit-tests.sh
+METABASE_TEST_VERSION=0.63.16 bash scripts/run-unit-tests.sh
 ```
 
-The v1.0.0 readiness matrix is:
+The v1.0.1 candidate matrix is:
 
-| Metabase | Result |
-| --- | --- |
-| `0.59.6.3` | Passed |
-| `0.60.1` | Passed |
-| `0.60.2.2` | Passed |
+| Metabase | Source suite | Exact candidate JAR suite | Live internal-catalog smoke |
+| --- | --- | --- | --- |
+| `0.59.6.3` | 85 tests / 402 assertions, passed | Not run | Not run |
+| `0.60.1` | 85 / 402, passed | 85 / 402, passed | Passed |
+| `0.60.2.2` | 85 / 402, passed | Not run | Not run |
+| `0.63.16` | 85 / 400, passed | 85 / 400, passed | Passed |
+
+All passing suites report zero failures and zero errors. Source suites run with the selected official Metabase
+runtime; the JAR suites load driver source exclusively from the candidate artifact. Both include mocked JDBC and
+metadata behavior and do not substitute for a live deployment test. Metabase 0.63.16 has two fewer assertions because
+the removed `:describe-fks` feature is no longer queried; a separate test checks its registration boundary.
 
 The suite covers:
 
-- exact parity for all 29 legacy Doris capability flags;
+- parity for the legacy capability flags still present in the selected runtime (29 on older versions, 28 on 0.63.16);
+- legacy foreign-key API/feature registration boundaries and the disabled `:metadata/key-constraints` capability;
 - JDBC URL construction, defaults, optional database/catalog selection, and timezone discovery;
 - Doris-to-Metabase type mapping, aliases, parameterized integer types, defaults, and nullability;
 - internal batched/streaming field discovery and external `SHOW` fallback behavior;
@@ -63,19 +71,29 @@ parses the YAML manifests.
 
 ## Live Integration
 
-The release target has been exercised end to end with Metabase `0.60.1` and a live Doris FE. That validation covered:
+On 2026-10-05, the exact v1.0.1 candidate JAR was installed in the plugin directories of isolated Metabase `0.60.1`
+and `0.63.16` instances. Both connected through an SSH tunnel to an existing Doris teaching deployment (image
+`apache/doris:all-in-one-4.1.3`; FE reports `doris-4.1.3-rc02-7126cf65d96`). The live checks passed for:
 
 - plugin loading and Doris connection validation;
-- full internal-catalog metadata sync;
+- internal-catalog schema sync limited to one existing teaching database (39 tables discovered);
 - native SQL execution;
 - Query Builder grouped aggregation;
 - approximate percentile generation/execution;
-- identifiers with spaces;
-- `NOW(6)` and temporal/timezone behavior;
-- integer and datetime metadata mapping.
+- a result alias containing spaces;
+- `NOW(6)`, Unicode text, and the UTC session timezone;
+- bigint, integer, decimal, date, and text metadata mapping;
+- numeric native template tags and optional SQL blocks through each runtime's real parameter pipeline.
 
-The other two Metabase versions in the matrix are verified by the automated suite, not by a claimed live integration
-run.
+The SQL checks read one existing 10-row table. The source database received only metadata reads and SELECT queries;
+no source objects were created, changed, or removed. Profiling and automatic query runs were disabled in the local
+Metabase connection. Only the isolated local Metabase application databases were initialized or written.
+
+The new live run did not cover external catalogs, source table/column identifiers containing spaces, generated-column
+flags, named timezone conversion, every Query Builder expression, or performance at scale. The previous v1.0.0
+validation record remains in `IMPLEMENTATION-RESULTS.md`; it is not additional candidate integration evidence.
+
+Metabase `0.59.6.3` and `0.60.2.2` have automated validation only for this candidate.
 
 ### Reproduce The Internal Smoke Path
 
@@ -136,16 +154,19 @@ assert those flags unless the source query actually returns them.
 
 ## Release Gate
 
-Before publishing `v1.0.0`, require all of the following on the release commit:
+Before publishing `v1.0.1`, require all of the following on the release commit:
 
 1. `clojure -T:build jar` succeeds and the JAR contains the manifest and driver namespaces.
-2. The automated suite passes on `0.59.6.3`, `0.60.1`, and `0.60.2.2`.
+2. The automated suite passes on `0.59.6.3`, `0.60.1`, `0.60.2.2`, and `0.63.16`.
 3. Shell syntax and YAML validation pass.
-4. A clean Metabase `0.60.1` instance loads the exact release artifact.
-5. Internal metadata sync, native SQL, grouped Query Builder, percentile, spaced identifiers, and temporal behavior
-   pass against a live Doris FE.
-6. The plugin manifest version and Git tag both equal `1.0.0`/`v1.0.0`.
-7. Only after those checks should the GitHub release asset be considered downloadable.
+4. Isolated Metabase `0.60.1` and `0.63.16` instances load the exact release artifact.
+5. Internal schema sync, native SQL, grouped Query Builder, percentile, temporal behavior, and native parameters
+   pass against a live Doris FE. State the fixture and untested scope explicitly; an alias with spaces is not evidence
+   for a source table/column name with spaces.
+6. The plugin manifest version and Git tag both equal `1.0.1`/`v1.0.1`.
+7. Review the release notes, checksum, candidate diff, and CI results, then obtain authorization to publish. The
+   existing tag workflow publishes a public release automatically when a matching tag is pushed.
+8. Only after the authorized release succeeds should the GitHub release asset be considered downloadable.
 
 Do not broaden the version claim without adding the exact Metabase release to the automated matrix and rerunning the
 relevant live checks.
